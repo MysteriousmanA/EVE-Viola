@@ -1,0 +1,5 @@
+﻿在根目录输入
+
+
+
+.\scripts\build_qt.ps1 

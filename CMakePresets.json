@@ -1,0 +1,67 @@
+﻿{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "windows-release",
+      "displayName": "Windows x64 Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/windows-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "qt-debug",
+      "displayName": "Qt 6 MSVC x64 Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/qt-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_PREFIX_PATH": "$env{QT_ROOT}",
+        "EVE_VIOLA_BUILD_QT_APP": "ON"
+      }
+    },
+    {
+      "name": "qt-release",
+      "displayName": "Qt 6 MSVC x64 Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/qt-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_PREFIX_PATH": "$env{QT_ROOT}",
+        "EVE_VIOLA_BUILD_QT_APP": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-release",
+      "configurePreset": "windows-release"
+    },
+    {
+      "name": "qt-debug",
+      "configurePreset": "qt-debug"
+    },
+    {
+      "name": "qt-release",
+      "configurePreset": "qt-release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-release",
+      "configurePreset": "windows-release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "qt-debug",
+      "configurePreset": "qt-debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "qt-release",
+      "configurePreset": "qt-release",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}
