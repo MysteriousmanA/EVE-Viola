@@ -53,8 +53,8 @@ void FloatingPetWindow::showMessage(const QString& message)
         longestLineWidth = qMax(longestLineWidth, metrics.horizontalAdvance(line));
     }
 
-    const QScreen* screen = QGuiApplication::screenAt(
-        mapToGlobal(QPoint(width() / 2, avatarSize_ / 2)));
+    const QPoint avatarCenter = mapToGlobal(QPoint(width() / 2, avatarSize_ / 2));
+    const QScreen* screen = QGuiApplication::screenAt(avatarCenter);
     const QRect availableGeometry = screen != nullptr
         ? screen->availableGeometry()
         : QRect(0, 0, 800, 800);
@@ -90,6 +90,8 @@ void FloatingPetWindow::showMessage(const QString& message)
         44, measuredBubbleHeight + kBubbleVerticalSlack, maxBubbleHeight);
     bubbleRegionHeight_ = qMax(kBubbleRegionHeight, bubbleHeight_ + 16);
     updateWindowRegion();
+    // Changing the bubble width must not move the centered avatar on screen.
+    move(avatarCenter - QPoint(width() / 2, avatarSize_ / 2));
     keepWindowOnScreen();
     bubble_->show();
     if (!isVisible()) {

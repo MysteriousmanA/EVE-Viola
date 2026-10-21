@@ -1,9 +1,11 @@
 #include <QtTest>
 
 #include <QApplication>
+#include <QGuiApplication>
 #include <QJsonObject>
 #include <QLabel>
 #include <QPainter>
+#include <QScreen>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QWheelEvent>
@@ -82,6 +84,45 @@ private slots:
         QCOMPARE(resized.last().first().toInt(), 192);
         sendWheel(pet, -12000);
         QCOMPARE(resized.last().first().toInt(), 72);
+    }
+
+    void messagesPreserveAvatarCenter_data()
+    {
+        QTest::addColumn<bool>("enabled");
+        QTest::newRow("enabled") << true;
+        QTest::newRow("temporarily-revealed") << false;
+    }
+
+    void messagesPreserveAvatarCenter()
+    {
+        QFETCH(bool, enabled);
+        FloatingPetWindow pet;
+        const QRect available = QGuiApplication::primaryScreen()->availableGeometry();
+        pet.move(available.center().x() - pet.width() / 2, available.top() + 24);
+        if (enabled) {
+            pet.show();
+        }
+        const QPoint center = pet.mapToGlobal(QPoint(pet.width() / 2, 64));
+        auto* timer = pet.findChild<QTimer*>();
+        QVERIFY(timer);
+        const QStringList messages{
+            QStringLiteral("Alpha：条件已经满足"),
+            QStringLiteral("Alpha、Beta、Gamma：条件已经满足，请切换账号处理。").repeated(4),
+            QStringLiteral("Alpha、Beta：条件已经满足"),
+            QStringLiteral("Alpha：条件已经满足")};
+        const int initialWidth = pet.width();
+        int maximumWidth = initialWidth;
+        for (const QString& message : messages) {
+            pet.showMessage(message);
+            maximumWidth = qMax(maximumWidth, pet.width());
+            QCOMPARE(pet.mapToGlobal(QPoint(pet.width() / 2, 64)), center);
+        }
+        QVERIFY(maximumWidth > initialWidth);
+        QVERIFY(pet.width() < maximumWidth);
+        timer->stop();
+        QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
+        QCOMPARE(pet.mapToGlobal(QPoint(pet.width() / 2, 64)), center);
+        QCOMPARE(pet.isVisible(), enabled);
     }
 
     void messageFitsBubbleAndOnlyTemporarilyRevealsHiddenPet()
