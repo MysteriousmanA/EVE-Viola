@@ -15,6 +15,33 @@ std::int32_t hresult_status(HRESULT result) {
 
 extern "C" {
 
+std::int32_t eve_viola_resume_thumbnail_source(std::uintptr_t hwnd) {
+    const auto window = reinterpret_cast<HWND>(hwnd);
+    if (!IsWindow(window) || GetAncestor(window, GA_ROOT) != window) {
+        return kInvalidArgument;
+    }
+    if (!IsIconic(window)) {
+        return kOk;
+    }
+    // Win+D minimizes the game as well. DWM can retain its last frame until
+    // the game renders again; re-registering the thumbnail cannot fix that.
+    // Never use SW_RESTORE/SetForegroundWindow here: focus belongs to the user.
+    constexpr UINT flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE |
+                           SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS;
+    if (!SetWindowPos(window, HWND_BOTTOM, 0, 0, 0, 0, flags)) {
+        return kActivationFailed;
+    }
+    if (GetWindowThreadProcessId(window, nullptr) == GetCurrentThreadId()) {
+        ShowWindow(window, SW_SHOWNOACTIVATE);
+    } else if (!ShowWindowAsync(window, SW_SHOWNOACTIVATE)) {
+        return kActivationFailed;
+    }
+    if (!SetWindowPos(window, HWND_BOTTOM, 0, 0, 0, 0, flags)) {
+        return kActivationFailed;
+    }
+    return kOk;
+}
+
 std::int32_t eve_viola_thumbnail_create(
     std::uintptr_t destination,
     std::uintptr_t source,

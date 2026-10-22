@@ -165,6 +165,7 @@ private:
     void initializeAudioFeedback();
 
     void updateThumbnail();
+    void renewThumbnail();
     void selectSourceImpl(const WindowInfo& source, bool preserveRegion);
     void setFlashActive(bool active);
     void showFailure(const QString& heading, const NativeException& error);

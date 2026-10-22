@@ -5,11 +5,54 @@
 #include <QShowEvent>
 #include <QTimer>
 
+#include "runtime/runtime_logger.h"
+
 void ReplicaWindow::initializeSourceMonitoring()
 {
     sourceCheckTimer_ = new QTimer(this);
     sourceCheckTimer_->setInterval(kSourceCheckIntervalMs);
-    connect(sourceCheckTimer_, &QTimer::timeout, this, &ReplicaWindow::updateThumbnail);
+    connect(sourceCheckTimer_, &QTimer::timeout, this, &ReplicaWindow::renewThumbnail);
+}
+
+void ReplicaWindow::renewThumbnail()
+{
+    if (!thumbnail_ || !source_ || !isVisible() || isMinimized()
+        || sourceNameVisible_ || capturingRegion_ || frameCapturePending_ || closedNotified_) {
+        updateThumbnail();
+        return;
+    }
+    try {
+        gateway_.resumeThumbnailSource(source_->hwnd);
+        // Property updates can succeed while a thumbnail keeps showing an old
+        // surface. Periodically renew the live relationship independently of
+        // input focus; DWM has no frame-progress callback for this API.
+        auto replacement = gateway_.createThumbnail(
+            static_cast<std::uintptr_t>(winId()), source_->hwnd);
+        const QSize size = replacement.sourceSize();
+        if (!size.isValid() || size.isEmpty()) {
+            throw NativeException(QStringLiteral("读取源窗口尺寸"), -4);
+        }
+        const QRect source = capturedRegion_.value_or(QRect(QPoint{}, size));
+        // Fully configure the new relationship before releasing the old one,
+        // so a failed renewal keeps the existing picture and source settings.
+        replacement.update(source, thumbnailDestinationRect(), 255, true);
+        thumbnail_ = std::move(replacement);
+        if (sourceSize_ != size) {
+            sourceSize_ = size;
+            applyContentAspectRatio();
+        }
+        update();
+    } catch (const NativeException& error) {
+        RuntimeLogger::writeEvent(QStringLiteral("thumbnail_renewal_failed"), QJsonObject{
+            {QStringLiteral("replica_id"), static_cast<double>(replicaId_)},
+            {QStringLiteral("source_hwnd"), RuntimeLogger::formatWindowHandle(source_->hwnd)},
+            {QStringLiteral("operation"), error.operation()},
+            {QStringLiteral("status"), error.status()},
+        });
+        // Retain the established source-loss/popup behavior if the old
+        // relationship also fails. A transient renewal failure alone is safe.
+        updateThumbnail();
+    }
 }
 
 const std::optional<WindowInfo>& ReplicaWindow::source() const noexcept
@@ -145,5 +188,5 @@ void ReplicaWindow::showFailure(
 void ReplicaWindow::showEvent(QShowEvent* event)
 {
     QWidget::showEvent(event);
-    updateThumbnail();
+    renewThumbnail();
 }

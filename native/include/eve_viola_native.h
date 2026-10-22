@@ -67,6 +67,9 @@ EVE_VIOLA_API std::int32_t eve_viola_thumbnail_update(
     std::uint8_t opacity,
     std::int32_t visible);
 EVE_VIOLA_API std::int32_t eve_viola_thumbnail_destroy(std::uintptr_t thumbnail);
+// Resume a minimized live-preview source at the bottom of the window stack,
+// without activating it. Visible sources are left untouched; requests are async.
+EVE_VIOLA_API std::int32_t eve_viola_resume_thumbnail_source(std::uintptr_t hwnd);
 EVE_VIOLA_API std::int32_t eve_viola_activate_window(
     std::uintptr_t hwnd,
     std::uintptr_t* observed_foreground_hwnd);

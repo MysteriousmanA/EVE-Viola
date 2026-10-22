@@ -87,6 +87,7 @@ NativeFunctions NativeFunctions::linked() noexcept
         eve_viola_capture_window_profiled,
         eve_viola_capture_frame,
         eve_viola_release_frame,
+        eve_viola_resume_thumbnail_source,
     };
 }
 
@@ -269,6 +270,13 @@ ThumbnailHandle NativeGateway::createThumbnail(
         functions_.createThumbnail(destinationHwnd, sourceHwnd, &handle),
         QStringLiteral("注册 DWM 小窗"));
     return ThumbnailHandle(functions_, handle);
+}
+
+void NativeGateway::resumeThumbnailSource(std::uintptr_t hwnd) const
+{
+    if (functions_.resumeThumbnailSource != nullptr) {
+        checkStatus(functions_.resumeThumbnailSource(hwnd), QStringLiteral("恢复后台预览源窗口"));
+    }
 }
 
 std::uintptr_t NativeGateway::activateWindow(std::uintptr_t hwnd) const

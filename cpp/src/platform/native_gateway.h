@@ -48,6 +48,7 @@ struct NativeFunctions {
     decltype(&eve_viola_capture_window_profiled) captureWindowProfiled{};
     decltype(&eve_viola_capture_frame) captureFrame{};
     decltype(&eve_viola_release_frame) releaseFrame{};
+    decltype(&eve_viola_resume_thumbnail_source) resumeThumbnailSource{};
 
     static NativeFunctions linked() noexcept;
     [[nodiscard]] bool isComplete() const noexcept;
@@ -109,6 +110,7 @@ public:
     [[nodiscard]] ThumbnailHandle createThumbnail(
         std::uintptr_t destinationHwnd,
         std::uintptr_t sourceHwnd) const;
+    void resumeThumbnailSource(std::uintptr_t hwnd) const;
     std::uintptr_t activateWindow(std::uintptr_t hwnd) const;
     void noteEveMouseButtonPressed() noexcept;
     void noteEveMouseButtonReleased() noexcept;

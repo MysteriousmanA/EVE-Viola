@@ -9,6 +9,7 @@
 #include <QApplication>
 #include <QLabel>
 #include <QMenu>
+#include <QTimer>
 #include <QWheelEvent>
 
 #ifdef Q_OS_WIN
@@ -24,6 +25,13 @@ struct WindowFakeState {
     std::uint32_t count{0};
     int freeCount{0};
     std::uintptr_t handle{909};
+    int createCount{0};
+    std::int32_t createStatus{0};
+    std::uintptr_t rejectedThumbnail{0};
+    std::uintptr_t stalledThumbnail{0};
+    std::uintptr_t lastDestroyedThumbnail{0};
+    int sourceRevision{1};
+    int displayedRevision{1};
     std::int32_t width{1920};
     std::int32_t height{1080};
     std::int32_t sourceStatus{0};
@@ -42,6 +50,9 @@ struct WindowFakeState {
     int updateCount{0};
     int destroyCount{0};
     int activateCount{0};
+    int resumeCount{0};
+    bool sourceMinimized{false};
+    std::int32_t resumeStatus{0};
     std::uintptr_t activatedHwnd{0};
 };
 
@@ -60,7 +71,9 @@ std::int32_t create(std::uintptr_t destination, std::uintptr_t source, std::uint
     if (destination == 0 || source == 0) {
         return -2;
     }
-    *handle = fake->handle;
+    ++fake->createCount;
+    if (fake->createStatus != 0) { return fake->createStatus; }
+    *handle = fake->handle + fake->createCount - 1;
     return 0;
 }
 std::int32_t sourceSize(std::uintptr_t, std::int32_t* width, std::int32_t* height)
@@ -72,7 +85,7 @@ std::int32_t sourceSize(std::uintptr_t, std::int32_t* width, std::int32_t* heigh
     return fake->sourceStatus;
 }
 std::int32_t update(
-    std::uintptr_t,
+    std::uintptr_t handle,
     EveRect source,
     EveRect rect,
     std::uint8_t,
@@ -82,11 +95,17 @@ std::int32_t update(
     fake->lastSource = source;
     fake->lastRect = rect;
     fake->lastVisible = visible;
+    if (handle == fake->rejectedThumbnail) { return -9; }
+    if (fake->updateStatus == 0 && visible && !fake->sourceMinimized
+        && handle != fake->stalledThumbnail) {
+        fake->displayedRevision = fake->sourceRevision;
+    }
     return fake->updateStatus;
 }
-std::int32_t destroy(std::uintptr_t)
+std::int32_t destroy(std::uintptr_t handle)
 {
     ++fake->destroyCount;
+    fake->lastDestroyedThumbnail = handle;
     return 0;
 }
 std::int32_t activate(std::uintptr_t hwnd, std::uintptr_t* observedForegroundHwnd)
@@ -130,12 +149,22 @@ void freePixels(std::uint8_t* pixels)
     delete[] pixels;
 }
 
+std::int32_t resumeSource(std::uintptr_t hwnd)
+{
+    if (hwnd == 0) { return -1; }
+    ++fake->resumeCount;
+    if (fake->resumeStatus == 0) { fake->sourceMinimized = false; }
+    return fake->resumeStatus;
+}
+
 NativeFunctions functions()
 {
-    return {
+    NativeFunctions result{
         version, enumerate, freeList, create, sourceSize, update, destroy, activate,
         capture, freePixels,
     };
+    result.resumeThumbnailSource = resumeSource;
+    return result;
 }
 
 void setRecord(WindowFakeState& state)
@@ -169,9 +198,13 @@ private slots:
         ReplicaWindow window(99, *gateway_, coordinator, *audioFeedbackManager_);
         window.selectSource({123, QStringLiteral("EVE - Alpha")});
         window.setStatisticsInterval(0);
+        window.show();
         window.beginRegionCapture();
         QCOMPARE(tasks.size(), std::size_t{1});
         QVERIFY(!window.isCapturingRegion());
+        const int createsWhilePending = state_.createCount;
+        window.renewThumbnail();
+        QCOMPARE(state_.createCount, createsWhilePending);
         window.setCapturedRegion(QRect(100, 100, 80, 40));
         tasks.front()();
         QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
@@ -290,6 +323,146 @@ private slots:
         QCoreApplication::processEvents();
         QCOMPARE(state_.destroyCount, 1);
         QCOMPARE(closedCount, 1);
+    }
+
+    void inactiveThumbnailRecoversWhenPropertyUpdatesKeepAnOldFrame()
+    {
+        ReplicaWindow window(7, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
+        window.setStatisticsInterval(0);
+        window.show();
+        window.selectSource({123, QStringLiteral("EVE - Alpha")});
+        window.setCapturedRegion(QRect(100, 100, 200, 150));
+        const QRect geometry = window.geometry();
+        const auto originalHandle = window.thumbnail_->nativeHandle();
+        state_.stalledThumbnail = originalHandle;
+        state_.sourceRevision = 2;
+        window.updateThumbnail();
+        QCOMPARE(state_.displayedRevision, 1); // Successful update, stale frame.
+
+        QWidget otherWindow;
+        otherWindow.show();
+        QApplication::setActiveWindow(&otherWindow);
+        QCoreApplication::processEvents();
+        QVERIFY(!window.isActiveWindow());
+
+        QCOMPARE(window.sourceCheckTimer_->interval(), 2000);
+        window.sourceCheckTimer_->setInterval(30);
+        QTRY_COMPARE_WITH_TIMEOUT(state_.displayedRevision, 2, 500);
+        QVERIFY(window.thumbnail_->nativeHandle() != originalHandle);
+        QCOMPARE(state_.lastDestroyedThumbnail, originalHandle);
+        QCOMPARE(window.capturedRegion(), std::optional<QRect>(QRect(100, 100, 200, 150)));
+        QCOMPARE(window.geometry(), geometry);
+        QCOMPARE(state_.lastVisible, 1);
+        QCOMPARE(state_.captureCount, 0);
+        QCOMPARE(state_.activateCount, 0);
+        QVERIFY(!window.isActiveWindow());
+
+        window.close();
+        const int updatesAfterClose = state_.updateCount;
+        QTest::qWait(120);
+        QCOMPARE(state_.updateCount, updatesAfterClose);
+    }
+
+    void thumbnailRenewalSkipsHiddenMinimizedAndSourceNameViews()
+    {
+        ReplicaWindow window(7, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
+        window.setStatisticsInterval(0);
+        window.selectSource({123, QStringLiteral("EVE - Alpha")});
+        const int resumesBefore = state_.resumeCount;
+        window.renewThumbnail();
+        QCOMPARE(state_.createCount, 1);
+        QCOMPARE(state_.resumeCount, resumesBefore);
+        window.show();
+        int createsBefore = state_.createCount;
+        window.hide();
+        window.renewThumbnail();
+        QCOMPARE(state_.createCount, createsBefore);
+
+        window.show();
+        window.setSourceNameVisible(true);
+        createsBefore = state_.createCount;
+        window.renewThumbnail();
+        QCOMPARE(state_.createCount, createsBefore);
+        QCOMPARE(state_.lastVisible, 0);
+
+        window.setSourceNameVisible(false);
+        window.showMinimized();
+        QCoreApplication::processEvents();
+        QVERIFY(window.isMinimized());
+        window.renewThumbnail();
+        QCOMPARE(state_.createCount, createsBefore);
+        window.showNormal();
+        window.renewThumbnail();
+        QVERIFY(state_.createCount > createsBefore);
+        QCOMPARE(state_.lastVisible, 1);
+    }
+
+    void minimizedSourceResumesWithoutClickOrActivation()
+    {
+        ReplicaWindow window(7, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
+        window.setStatisticsInterval(0);
+        window.show();
+        window.selectSource({123, QStringLiteral("EVE - Alpha")});
+        QWidget otherWindow;
+        otherWindow.show();
+        QApplication::setActiveWindow(&otherWindow);
+        QCoreApplication::processEvents();
+        QVERIFY(!window.isActiveWindow());
+
+        state_.sourceMinimized = true; // Source minimized by Win+D.
+        state_.sourceRevision = 2;
+        window.updateThumbnail();
+        QCOMPARE(state_.displayedRevision, 1);
+        const int resumesBefore = state_.resumeCount;
+        window.sourceCheckTimer_->setInterval(30);
+        QTRY_COMPARE_WITH_TIMEOUT(state_.displayedRevision, 2, 500);
+        QVERIFY(state_.resumeCount > resumesBefore);
+        QVERIFY(!state_.sourceMinimized);
+        QCOMPARE(state_.activateCount, 0);
+        QVERIFY(!window.isActiveWindow());
+    }
+
+    void failedThumbnailRenewalKeepsExistingRelationship_data()
+    {
+        QTest::addColumn<int>("failureStage");
+        QTest::newRow("registration") << 0;
+        QTest::newRow("source-size") << 1;
+        QTest::newRow("configuration") << 2;
+        QTest::newRow("background-resume") << 3;
+    }
+
+    void failedThumbnailRenewalKeepsExistingRelationship()
+    {
+        QFETCH(int, failureStage);
+        ReplicaWindow window(7, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
+        window.setStatisticsInterval(0);
+        window.show();
+        window.selectSource({123, QStringLiteral("EVE - Alpha")});
+        const auto originalHandle = window.thumbnail_->nativeHandle();
+        QSignalSpy unavailable(&window, &ReplicaWindow::sourceUnavailable);
+        if (failureStage == 0) { state_.createStatus = -3; }
+        if (failureStage == 1) { state_.sourceStatus = -7; }
+        if (failureStage == 2) { state_.rejectedThumbnail = originalHandle + 1; }
+        if (failureStage == 3) { state_.resumeStatus = -5; }
+
+        window.renewThumbnail();
+
+        QVERIFY(window.isVisible());
+        QVERIFY(window.source().has_value());
+        QCOMPARE(window.thumbnail_->nativeHandle(), originalHandle);
+        QCOMPARE(unavailable.count(), 0);
+        QCOMPARE(state_.destroyCount, failureStage == 0 || failureStage == 3 ? 0 : 1);
+        QVERIFY(state_.lastDestroyedThumbnail != originalHandle);
+
+        state_.createStatus = 0;
+        state_.sourceStatus = 0;
+        state_.rejectedThumbnail = 0;
+        state_.resumeStatus = 0;
+        window.renewThumbnail();
+        QVERIFY(window.thumbnail_->nativeHandle() != originalHandle);
+        QCOMPARE(state_.lastDestroyedThumbnail, originalHandle);
+        QCOMPARE(state_.captureCount, 0);
+        QCOMPARE(state_.activateCount, 0);
     }
 
     void shortLeftClickActivatesSelectedSource()
@@ -679,8 +852,14 @@ private slots:
         QCoreApplication::processEvents();
 
         QCOMPARE(state_.lastVisible, 0);
+        const int createsWhileFrozen = state_.createCount;
+        window.renewThumbnail();
+        QCOMPARE(state_.createCount, createsWhileFrozen);
+        QCOMPARE(state_.lastVisible, 0);
         QTest::keyClick(&window, Qt::Key_Escape);
         QCOMPARE(state_.lastVisible, 1);
+        window.renewThumbnail();
+        QCOMPARE(state_.createCount, createsWhileFrozen + 1);
     }
 
     void captureRegionWithoutSelectionEnterDoesNothing()
