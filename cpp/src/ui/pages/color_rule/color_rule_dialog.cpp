@@ -2,6 +2,7 @@
 #include "features/color_rule/trigger_condition.h"
 #include "features/color_rule/color_rule_config.h"
 #include "features/replica/pixel_statistics.h"
+#include "ui/pixel_color_editor.h"
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -10,6 +11,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QVBoxLayout>
@@ -17,18 +19,19 @@
 std::optional<ColorRule> promptColorRule(QWidget *parent, const ColorRule &initial)
 {
     QDialog dialog(parent);
+    dialog.setObjectName(QStringLiteral("colorRuleDialog"));
     dialog.setWindowTitle(initial.number > 0 ? QStringLiteral("编辑图色规则")
                                              : QStringLiteral("新增图色规则"));
-    dialog.setMinimumWidth(540);
+    dialog.setMinimumWidth(640);
 
     auto *layout = new QVBoxLayout(&dialog);
     auto *form = new QFormLayout;
     auto *note = new QLineEdit(initial.note);
     note->setPlaceholderText(QStringLiteral("例如：护盾告警"));
 
-    const QStringList pixelCategories = pixelColorCategoryNames();
     struct ConditionEditor {
         QWidget *widget{};
+        PixelColorEditor *color{};
         QComboBox *pixel{};
         QComboBox *lowerOp{};
         QSpinBox *lowerValue{};
@@ -39,14 +42,10 @@ std::optional<ColorRule> promptColorRule(QWidget *parent, const ColorRule &initi
     const auto createConditionEditor = [&](const ColorRuleCondition &initialCondition, int index) {
         ConditionEditor editor;
         editor.widget = new QWidget;
-        editor.pixel = new QComboBox;
+        editor.color = new PixelColorEditor({initialCondition.pixel, initialCondition.tolerance}, true);
+        editor.pixel = editor.color->combo();
         editor.pixel->setObjectName(QStringLiteral("triggerCondition%1Pixel").arg(index));
-        editor.pixel->addItem(QStringLiteral("无"), QString{});
-        for (const auto &category : pixelCategories) {
-            editor.pixel->addItem(category, category);
-        }
-        const int pixelIndex = editor.pixel->findData(initialCondition.pixel);
-        editor.pixel->setCurrentIndex(pixelIndex >= 0 ? pixelIndex : 0);
+        editor.color->tolerance()->setObjectName(QStringLiteral("triggerCondition%1Tolerance").arg(index));
 
         editor.lowerOp = new QComboBox;
         editor.lowerOp->setObjectName(QStringLiteral("triggerCondition%1LowerOperator").arg(index));
@@ -77,20 +76,26 @@ std::optional<ColorRule> promptColorRule(QWidget *parent, const ColorRule &initi
             }
         }
 
-        auto *conditionLayout = new QHBoxLayout(editor.widget);
+        auto *conditionLayout = new QVBoxLayout(editor.widget);
         conditionLayout->setContentsMargins(0, 0, 0, 0);
-        conditionLayout->addWidget(new QLabel(QStringLiteral("像素")));
-        conditionLayout->addWidget(editor.pixel);
-        conditionLayout->addWidget(new QLabel(QStringLiteral("下界")));
-        conditionLayout->addWidget(editor.lowerOp);
-        conditionLayout->addWidget(editor.lowerValue);
-        conditionLayout->addWidget(new QLabel(QStringLiteral("且上界")));
-        conditionLayout->addWidget(editor.upperOp);
-        conditionLayout->addWidget(editor.upperValue);
-        conditionLayout->addStretch(1);
+        conditionLayout->setSpacing(5);
+        auto *colorLayout = new QHBoxLayout;
+        colorLayout->addWidget(new QLabel(QStringLiteral("像素颜色")));
+        colorLayout->addWidget(editor.color, 1);
+        conditionLayout->addLayout(colorLayout);
+        auto *boundsLayout = new QHBoxLayout;
+        boundsLayout->addWidget(new QLabel(QStringLiteral("下界")));
+        boundsLayout->addWidget(editor.lowerOp);
+        boundsLayout->addWidget(editor.lowerValue);
+        boundsLayout->addWidget(new QLabel(QStringLiteral("且上界")));
+        boundsLayout->addWidget(editor.upperOp);
+        boundsLayout->addWidget(editor.upperValue);
+        boundsLayout->addStretch(1);
+        conditionLayout->addLayout(boundsLayout);
 
         const auto refreshState = [editor] {
-            const bool active = !editor.pixel->currentData().toString().isEmpty();
+            const QString color = editor.pixel->currentText().trimmed();
+            const bool active = !color.isEmpty() && color != QStringLiteral("无");
             editor.lowerOp->setEnabled(active);
             editor.upperOp->setEnabled(active);
             editor.lowerValue->setEnabled(active &&
@@ -98,7 +103,7 @@ std::optional<ColorRule> promptColorRule(QWidget *parent, const ColorRule &initi
             editor.upperValue->setEnabled(active &&
                                           !editor.upperOp->currentData().toString().isEmpty());
         };
-        QObject::connect(editor.pixel, &QComboBox::currentIndexChanged, &dialog, refreshState);
+        QObject::connect(editor.pixel, &QComboBox::currentTextChanged, &dialog, refreshState);
         QObject::connect(editor.lowerOp, &QComboBox::currentIndexChanged, &dialog, refreshState);
         QObject::connect(editor.upperOp, &QComboBox::currentIndexChanged, &dialog, refreshState);
         refreshState();
@@ -152,6 +157,12 @@ std::optional<ColorRule> promptColorRule(QWidget *parent, const ColorRule &initi
     action->setCurrentIndex(action->findData(static_cast<int>(initial.postTriggerAction)));
 
     form->addRow(QStringLiteral("备注"), note);
+    auto* priority = new QComboBox;
+    priority->setObjectName(QStringLiteral("colorRulePriority"));
+    priority->addItems({QStringLiteral("普通"), QStringLiteral("较高"), QStringLiteral("最高 · 立即执行")});
+    priority->setCurrentIndex(static_cast<int>(initial.priority));
+    priority->setToolTip(QStringLiteral("最高优先级立即执行，仍参与白名单匹配，且不被节点的消除效果拦截。"));
+    form->addRow(QStringLiteral("优先级"), priority);
     form->addRow(QStringLiteral("触发条件 1"), condition1.widget);
     form->addRow(QStringLiteral("触发条件 2"), condition2.widget);
     form->addRow(QStringLiteral("触发反馈"), feedback);
@@ -162,7 +173,14 @@ std::optional<ColorRule> promptColorRule(QWidget *parent, const ColorRule &initi
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
     buttons->button(QDialogButtonBox::Save)->setText(QStringLiteral("保存"));
     buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
-    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, [&] {
+        if (!condition1.color->target() || !condition2.color->target()) {
+            QMessageBox::warning(&dialog, QStringLiteral("颜色无效"),
+                QStringLiteral("请选择预设颜色或输入有效的 #RRGGBB 色值。"));
+            return;
+        }
+        dialog.accept();
+    });
     QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     layout->addWidget(buttons);
 
@@ -171,7 +189,8 @@ std::optional<ColorRule> promptColorRule(QWidget *parent, const ColorRule &initi
     }
 
     const auto readCondition = [](const ConditionEditor &editor) {
-        const QString pixel = editor.pixel->currentData().toString();
+        const auto target = editor.color->target().value();
+        const QString pixel = target.color;
         if (pixel.isEmpty()) {
             return ColorRuleCondition{};
         }
@@ -184,7 +203,7 @@ std::optional<ColorRule> promptColorRule(QWidget *parent, const ColorRule &initi
         if (expression.isEmpty() && !editor.initialExpression.isEmpty()) {
             expression = editor.initialExpression;
         }
-        return ColorRuleCondition{pixel, expression};
+        return ColorRuleCondition{pixel, expression, target.tolerance};
     };
 
     const auto feedbackType = static_cast<TriggerFeedback>(feedback->currentData().toInt());
@@ -193,6 +212,7 @@ std::optional<ColorRule> promptColorRule(QWidget *parent, const ColorRule &initi
     ColorRule result;
     result.number = initial.number;
     result.note = note->text().trimmed();
+    result.priority = static_cast<ColorRulePriority>(priority->currentIndex());
     result.triggerCondition1 = readCondition(condition1);
     result.triggerCondition2 = readCondition(condition2);
     result.triggerFeedback = feedbackType;

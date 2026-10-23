@@ -4,6 +4,7 @@
 
 #include <QTimer>
 
+#include "features/desktop_pet/astrbot_notifier.h"
 #include "ui/desktop_pet/floating_pet_window.h"
 
 DesktopPetPage::DesktopPetPage(QString settingsDirectory, QWidget* parent)
@@ -13,10 +14,12 @@ DesktopPetPage::DesktopPetPage(QString settingsDirectory, QWidget* parent)
     const auto [zoomValue, sizeValue] = buildLayout();
     petWindow_ = new FloatingPetWindow;
     initializeMessagePersistence();
+    astrBotNotifier_ = new AstrBotNotifier(this);
     connectEditorSignals(zoomValue, sizeValue);
     connectFloatingPetSignals();
 
     loadSettings();
+    connectNotificationSignals();
     refreshPreview();
     updatePetButton();
     restoreEnabledPet();

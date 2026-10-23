@@ -140,6 +140,8 @@ ReplicaWindow* MainWindow::restoreReplica(
     row->setActiveColorLogicSlot(config.activeColorLogicSlot);
     // Do not let a half-restored window enter the capture worker.
     window->setStatisticsInterval(kStatisticsIntervalDisabledMs);
+    row->setStatisticsColors(config.statisticsColors);
+    window->setStatisticsColors(config.statisticsColors);
     if (sourceOverride != nullptr) {
         window->selectSource(*sourceOverride);
     } else if (!config.sourceTitle.isEmpty()) {

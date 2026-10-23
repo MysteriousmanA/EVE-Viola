@@ -60,7 +60,8 @@ bool isRedPixelRgb(QRgb pixel) noexcept
 
 PixelStatistics calculatePixelStatistics(
     const QImage& image,
-    std::optional<QRect> region)
+    std::optional<QRect> region,
+    const QList<PixelColorTarget>& targets)
 {
     if (image.isNull()) {
         return {};
@@ -85,7 +86,8 @@ PixelStatistics calculatePixelStatistics(
         pixels.width(),
         pixels.height(),
         pixels.bytesPerLine(),
-        region);
+        region,
+        targets);
 }
 
 PixelStatistics calculatePixelStatistics(
@@ -93,7 +95,8 @@ PixelStatistics calculatePixelStatistics(
     int width,
     int height,
     qsizetype bytesPerLine,
-    std::optional<QRect> region)
+    std::optional<QRect> region,
+    const QList<PixelColorTarget>& targets)
 {
     if (pixels == nullptr || width <= 0 || height <= 0
         || bytesPerLine < static_cast<qsizetype>(width) * 4) {
@@ -110,6 +113,27 @@ PixelStatistics calculatePixelStatistics(
 
     qsizetype redCount = 0;
     qsizetype whiteCount = 0;
+    qsizetype blueCount = 0;
+    const auto eveBlue = pixelColorValue(QStringLiteral("蓝色"));
+    const int eveBlueRed = eveBlue.red();
+    const int eveBlueGreen = eveBlue.green();
+    const int eveBlueBlue = eveBlue.blue();
+    // Keep the muted EVE blue distinct from neutral gray and pure RGB blue.
+    constexpr int eveBlueTolerance = 16;
+    struct Matcher {
+        int redMin, redMax, greenMin, greenMax, blueMin, blueMax;
+    };
+    QList<Matcher> matchers;
+    QList<PixelColorCount> colors;
+    for (const auto& target : normalizedPixelColorTargets(targets)) {
+        if (target.tolerance < 0) { continue; }
+        const auto value = pixelColorValue(target.color);
+        const int tolerance = target.tolerance;
+        matchers.append({value.red() - tolerance, value.red() + tolerance,
+                         value.green() - tolerance, value.green() + tolerance,
+                         value.blue() - tolerance, value.blue() + tolerance});
+        colors.append({target, 0});
+    }
 
     for (int y = sampleRegion.top(); y <= sampleRegion.bottom(); ++y) {
         const auto* row = reinterpret_cast<const QRgb*>(
@@ -124,6 +148,19 @@ PixelStatistics calculatePixelStatistics(
             if (isWhitePixel(red, green, blue)) {
                 ++whiteCount;
             }
+            if (std::abs(red - eveBlueRed) <= eveBlueTolerance
+                && std::abs(green - eveBlueGreen) <= eveBlueTolerance
+                && std::abs(blue - eveBlueBlue) <= eveBlueTolerance) {
+                ++blueCount;
+            }
+            for (qsizetype index = 0; index < matchers.size(); ++index) {
+                const auto& match = matchers[index];
+                if (red >= match.redMin && red <= match.redMax
+                    && green >= match.greenMin && green <= match.greenMax
+                    && blue >= match.blueMin && blue <= match.blueMax) {
+                    ++colors[index].count;
+                }
+            }
         }
     }
 
@@ -133,5 +170,7 @@ PixelStatistics calculatePixelStatistics(
         pixelCount,
         redCount,
         whiteCount,
+        blueCount,
+        std::move(colors),
     };
 }

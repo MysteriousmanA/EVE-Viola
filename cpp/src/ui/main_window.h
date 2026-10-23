@@ -46,6 +46,8 @@ class RegionPresetPage;
 class RegionPresetController;
 class ColorRulePage;
 class ColorRuleController;
+class AdvancedLogicPage;
+class AdvancedLogicService;
 class QuickSwitchPage;
 class QuickSwitchController;
 class RadialSwitchOverlay;
@@ -127,11 +129,12 @@ private:
     [[nodiscard]] QWidget* buildReplicaListPage();
     [[nodiscard]] QWidget* buildRegionPresetPage();
     [[nodiscard]] QWidget* buildColorRulePage();
+    [[nodiscard]] QWidget* buildAdvancedLogicPage();
     [[nodiscard]] QWidget* buildQuickSwitchPage();
     [[nodiscard]] QWidget* buildPagePartitionPage();
     [[nodiscard]] QWidget* buildExpeditionTimingPage();
     [[nodiscard]] QWidget* buildDesktopPetPage();
-    void setFishModeEnabled(bool enabled);
+    void setDesktopPetMode(DesktopPetMode mode);
     void connectReplicaSignals(ReplicaWindow* window, ReplicaRow* row);
     void showSyncReplicasDialog(ReplicaId id);
     void saveRegionPresetFromReplica(ReplicaId id);
@@ -150,6 +153,7 @@ private:
     RegionCaptureController* regionCaptureController_{};
     StatisticsCoordinator* statisticsCoordinator_{};
     AudioFeedbackManager* audioFeedbackManager_{};
+    AdvancedLogicService* advancedLogicService_{};
     ReplicaController replicaController_;
     RuntimePolicy runtimePolicy_;
     JsonConfigStore configStore_;
@@ -164,6 +168,7 @@ private:
     RegionPresetController* regionPresetController_{};
     ColorRulePage* colorRulePage_{};
     ColorRuleController* colorRuleController_{};
+    AdvancedLogicPage* advancedLogicPage_{};
     QuickSwitchPage* quickSwitchPage_{};
     QuickSwitchController* quickSwitchController_{};
     RadialSwitchOverlay* radialSwitchOverlay_{};

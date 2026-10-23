@@ -94,7 +94,8 @@ void QuickSwitchService::Impl::run()
     mouseHook = nullptr;
     UnhookWindowsHookEx(keyboardHookHandle);
     keyboardHookHandle = nullptr;
-    releaseTrackedEveMouseButtons();
+    releaseTrackedMouseButtons();
+    releaseTrackedKeyboardKeys();
     activeImpl.store(nullptr, std::memory_order_release);
     threadId.store(0, std::memory_order_release);
 }

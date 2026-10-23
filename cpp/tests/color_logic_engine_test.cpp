@@ -48,6 +48,111 @@ class ColorLogicEngineTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void notificationObservationDoesNotExecuteOrAdvanceRules()
+    {
+        ColorLogicEngine engine({audioRule(PostTriggerAction::Jump)});
+        engine.setSlotRule(1, 1);
+        engine.setEnabled(true);
+        QCOMPARE(engine.observeNotification({0, 2, 0}), std::optional<int>(1));
+        QVERIFY(!engine.observeNotification({0, 2, 0}));
+        QCOMPARE(engine.triggerCount(1), 0);
+        QCOMPARE(engine.activeSlot(), 1);
+        QVERIFY(!engine.hasActiveFeedback());
+        QVERIFY(!engine.observeNotification({0, 0, 0}));
+        QCOMPARE(engine.observeNotification({0, 2, 0}), std::optional<int>(1));
+        engine.setEnabled(false);
+        QVERIFY(!engine.observeNotification({0, 2, 0}));
+    }
+
+    void resettingPendingFeedbackCancelsAudioWithoutPostTriggerJump()
+    {
+        ColorLogicEngine engine({audioRule(PostTriggerAction::Jump)});
+        engine.setSlotRule(1, 1);
+        engine.setEnabled(true);
+        const auto trigger = engine.observe(2, 0).first();
+        QVERIFY(engine.hasActiveFeedback());
+        const auto cancelled = engine.resetPendingFeedback();
+        QVERIFY(hasEffect(cancelled, ColorLogicEffectKind::CancelAudio));
+        QVERIFY(!hasEffect(cancelled, ColorLogicEffectKind::SwitchActiveSlot));
+        QVERIFY(!engine.hasActiveFeedback());
+        QCOMPARE(engine.activeSlot(), 1);
+        QCOMPARE(engine.triggerCount(1), 1);
+        QVERIFY(engine.feedbackCompleted(trigger.feedbackId).isEmpty());
+        QCOMPARE(triggerCount(engine.observe(2, 0)), 1);
+    }
+
+    void completingEarlierAudioDoesNotRearmALaterSuppressedEdge()
+    {
+        ColorLogicEngine engine({audioRule()});
+        engine.setSlotRule(1, 1);
+        engine.setEnabled(true);
+        const auto first = engine.observe(PixelStatistics{0, 2, 0}, true).first();
+        static_cast<void>(engine.observe(PixelStatistics{0, 0, 0}, true));
+        const auto second = engine.observe(PixelStatistics{0, 2, 0}, true).first();
+        QVERIFY(engine.activateDeferredFeedback(first.feedbackId));
+        static_cast<void>(engine.feedbackSuppressed(second.feedbackId));
+        static_cast<void>(engine.feedbackCompleted(first.feedbackId));
+        QCOMPARE(triggerCount(engine.observe(2, 0)), 0);
+        static_cast<void>(engine.observe(0, 0));
+        QCOMPARE(triggerCount(engine.observe(2, 0)), 1);
+    }
+
+    void deferredNoneFeedbackDoesNotJumpUntilApproved()
+    {
+        auto rule = redRule();
+        rule.postTriggerAction = PostTriggerAction::Jump;
+        ColorLogicEngine engine({rule, redRule(2)});
+        engine.setSlotRule(1, 1);
+        engine.setSlotRule(2, 2);
+        engine.setEnabled(true);
+        const auto pending = engine.observe(PixelStatistics{0, 2, 0}, true);
+        QCOMPARE(pending.size(), 1);
+        QCOMPARE(engine.activeSlot(), 1);
+        QVERIFY(engine.activateDeferredFeedback(pending.first().feedbackId));
+        QVERIFY(hasEffect(engine.feedbackCompleted(pending.first().feedbackId), ColorLogicEffectKind::SwitchActiveSlot));
+        QCOMPARE(engine.activeSlot(), 2);
+    }
+
+    void suppressionSkipsPostActionAndDoesNotLoopOnTheSameCondition()
+    {
+        auto rule = redRule();
+        rule.postTriggerAction = PostTriggerAction::Loop;
+        ColorLogicEngine engine({rule});
+        engine.setSlotRule(1, 1);
+        engine.setEnabled(true);
+        const auto pending = engine.observe(PixelStatistics{0, 2, 0}, true);
+        QVERIFY(engine.feedbackSuppressed(pending.first().feedbackId).isEmpty());
+        QCOMPARE(triggerCount(engine.observe(2, 0)), 0);
+        static_cast<void>(engine.observe(0, 0));
+        QCOMPARE(triggerCount(engine.observe(2, 0)), 1);
+    }
+
+    void triggersForBlueAndCustomColorWithItsOwnTolerance()
+    {
+        ColorRule rule = redRule();
+        rule.triggerCondition1 = {QStringLiteral("蓝色"), QStringLiteral(">=1")};
+        rule.triggerCondition2 = {QStringLiteral("#00ff00"), QStringLiteral(">=2"), 16};
+        ColorLogicEngine engine({rule});
+        engine.setSlotRule(1, 1);
+        engine.setEnabled(true);
+        QImage image(3, 1, QImage::Format_RGB32);
+        image.fill(Qt::green);
+        image.setPixel(0, 0, qRgb(48, 79, 91));
+        image.setPixel(1, 0, qRgb(16, 240, 16));
+        const auto statistics = calculatePixelStatistics(image, std::nullopt,
+            {{QStringLiteral("#00ff00"), 16}, {QStringLiteral("#00ff00"), 0}});
+        QCOMPARE(triggerCount(engine.observe(statistics)), 1);
+        rule.triggerCondition2.tolerance = 0;
+        engine.setRules({rule});
+        engine.setSlotRule(1, 1);
+        QCOMPARE(triggerCount(engine.observe(statistics)), 0);
+        // A missing requested color must never satisfy a zero-count rule.
+        rule.triggerCondition2 = {QStringLiteral("#123456"), QStringLiteral("<=0"), 0};
+        engine.setRules({rule});
+        engine.setSlotRule(1, 1);
+        QCOMPARE(triggerCount(engine.observe(statistics)), 0);
+    }
+
     void triggersOnlyOnFalseToTrueEdge()
     {
         ColorLogicEngine engine({redRule()});

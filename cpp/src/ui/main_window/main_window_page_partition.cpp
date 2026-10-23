@@ -5,7 +5,9 @@
 
 QWidget* MainWindow::buildPagePartitionPage()
 {
-    pagePartitionPage_ = new PagePartitionPage(config_.pagePartition);
+    pagePartitionPage_ = new PagePartitionPage;
+    pagePartitionPage_->setFishModeSuppressed(runtimePolicy_.presentationSuppressed());
+    pagePartitionPage_->setPartitionConfig(config_.pagePartition);
     connect(
         pagePartitionPage_, &PagePartitionPage::configurationChanged,
         this, [this] {

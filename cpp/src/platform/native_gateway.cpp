@@ -291,8 +291,8 @@ std::uintptr_t NativeGateway::activateWindow(std::uintptr_t hwnd) const
     return observedForegroundHwnd;
 }
 
-void NativeGateway::noteEveMouseButtonPressed() noexcept { activation_->noteEveMouseButtonPressed(); }
-void NativeGateway::noteEveMouseButtonReleased() noexcept { activation_->noteEveMouseButtonReleased(); }
+void NativeGateway::noteInputPressed() noexcept { activation_->noteInputPressed(); }
+void NativeGateway::noteInputReleased() noexcept { activation_->noteInputReleased(); }
 void NativeGateway::setAutomaticActivationMouseQuietPeriodMs(int milliseconds) noexcept
 { activation_->setAutomaticActivationMouseQuietPeriodMs(milliseconds); }
 void NativeGateway::queueAutomaticActivation(std::uint64_t id, std::uintptr_t hwnd,
@@ -344,7 +344,8 @@ std::function<QImage(std::uintptr_t)> NativeGateway::frameCaptureFunction() cons
 
 QList<std::optional<PixelStatistics>> NativeGateway::captureWindowStatistics(
     std::uintptr_t hwnd,
-    const QList<std::optional<QRect>>& regions) const
+    const QList<std::optional<QRect>>& regions,
+    const QList<PixelColorTarget>& targets) const
 {
     const PerformanceScope timing("statistics.total", hwnd);
     std::int32_t width = 0;
@@ -409,7 +410,8 @@ QList<std::optional<PixelStatistics>> NativeGateway::captureWindowStatistics(
             width,
             height,
             stride,
-            region);
+            region,
+            targets);
         if (startNs != 0) {
             PerformanceRecorder::record("statistics.scan", PerformanceRecorder::nowNs() - startNs,
                                         hwnd, static_cast<quint64>(statistics.pixelCount));

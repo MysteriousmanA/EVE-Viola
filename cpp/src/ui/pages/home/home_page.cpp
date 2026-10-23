@@ -144,14 +144,14 @@ HomePage::HomePage(QWidget *parent) : QWidget(parent)
     automaticActivationMouseQuietPeriodSpinBox_->setValue(
         kDefaultAutomaticActivationMouseQuietPeriodMs / 1000.0);
     automaticActivationMouseQuietPeriodSpinBox_->setToolTip(QStringLiteral(
-        "EVE 鼠标按键松开后，在此时间内不因图色触发而自动切换窗口；按住期间始终抑制"));
+        "任意位置的鼠标或键盘按键松开后，在此时间内不因图色触发而自动切换窗口；按住期间始终抑制，再次点击或按键会重新计时"));
     connect(automaticActivationMouseQuietPeriodSpinBox_,
             qOverload<double>(&QDoubleSpinBox::valueChanged), this,
             [this](double seconds) { emit mouseQuietPeriodChanged(seconds); });
 
     cooldownLayout->addWidget(cooldownLabel, 0, 0);
     cooldownLayout->addWidget(automaticActivationCooldownSpinBox_, 0, 1);
-    cooldownLayout->addWidget(new QLabel(QStringLiteral("EVE 点击静默")), 1, 0);
+    cooldownLayout->addWidget(new QLabel(QStringLiteral("点击静默")), 1, 0);
     cooldownLayout->addWidget(automaticActivationMouseQuietPeriodSpinBox_, 1, 1);
     cooldownLayout->setColumnStretch(2, 1);
 

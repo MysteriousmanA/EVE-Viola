@@ -8,15 +8,15 @@
 #include <QJsonObject>
 #include <QString>
 
-// Mouse activity is recorded by the hook thread. All other operations run on
-// the application thread. Clock and activation are injectable policy ports.
+// Mouse and keyboard activity is recorded by the hook thread. All other operations
+// run on the application thread. Clock and activation are injectable policy ports.
 class ActivationCoordinator final {
 public:
     using Activate = std::function<std::uintptr_t(std::uintptr_t)>;
     using Clock = std::function<std::int64_t()>;
     explicit ActivationCoordinator(Activate activate, Clock clock = {});
-    void noteEveMouseButtonPressed() noexcept;
-    void noteEveMouseButtonReleased() noexcept;
+    void noteInputPressed() noexcept;
+    void noteInputReleased() noexcept;
     void setAutomaticActivationMouseQuietPeriodMs(int milliseconds) noexcept;
     void queueAutomaticActivation(
         std::uint64_t replicaId,
@@ -48,12 +48,12 @@ private:
         const QString& reason,
         QJsonObject windowStateBefore = {},
         std::optional<std::uintptr_t> activationCheckForegroundHwnd = std::nullopt) const;
-    [[nodiscard]] bool hasRecentEveMouseActivity() const noexcept;
+    [[nodiscard]] bool hasRecentInputActivity() const noexcept;
 
     Activate activate_;
     Clock clock_;
-    std::atomic<int> activeEveMouseButtons_{};
-    std::atomic<std::int64_t> lastEveMouseActivityMs_{};
+    std::atomic<int> activeInputs_{};
+    std::atomic<std::int64_t> lastInputActivityMs_{};
     std::atomic<int> automaticActivationMouseQuietPeriodMs_{};
     std::optional<std::int64_t> lastCooldownActivation_;
     std::unordered_map<std::uint64_t, AutomaticActivationRequest>

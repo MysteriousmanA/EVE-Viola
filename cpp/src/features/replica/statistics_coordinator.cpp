@@ -33,8 +33,9 @@ StatisticsCoordinator::StatisticsCoordinator(NativeGateway& gateway, QObject* pa
     clock_ = [elapsed] { return elapsed->elapsed(); };
     capture_ = [&gateway](
                    std::uintptr_t hwnd,
-                   const QList<std::optional<QRect>>& regions) {
-        return gateway.captureWindowStatistics(hwnd, regions);
+                   const QList<std::optional<QRect>>& regions,
+                   const QList<PixelColorTarget>& targets) {
+        return gateway.captureWindowStatistics(hwnd, regions, targets);
     };
     frameCapture_ = gateway.frameCaptureFunction();
     ownsExecutor_ = true;
@@ -61,9 +62,21 @@ StatisticsCoordinator::StatisticsCoordinator(
     std::function<QImage(std::uintptr_t)> frameCapture, QObject* parent)
     : QObject(parent)
     , clock_(std::move(clock))
-    , capture_(std::move(capture))
+    , capture_([capture = std::move(capture)](std::uintptr_t hwnd,
+          const QList<std::optional<QRect>>& regions, const QList<PixelColorTarget>&) {
+          return capture(hwnd, regions);
+      })
     , executor_(std::move(executor))
     , frameCapture_(std::move(frameCapture))
+{
+    initialize();
+}
+
+StatisticsCoordinator::StatisticsCoordinator(
+    StatisticsClock clock, ColorStatisticsCapture capture, StatisticsExecutor executor,
+    QObject* parent)
+    : QObject(parent), clock_(std::move(clock)), capture_(std::move(capture)),
+      executor_(std::move(executor))
 {
     initialize();
 }
@@ -90,18 +103,21 @@ void StatisticsCoordinator::upsert(
     ReplicaId id,
     std::uintptr_t hwnd,
     std::optional<QRect> region,
-    int intervalMs)
+    int intervalMs,
+    const QList<PixelColorTarget>& targets)
 {
     if (id == 0 || hwnd == 0 || intervalMs <= 0) {
         remove(id);
         return;
     }
 
+    const auto normalizedTargets = normalizedPixelColorTargets(targets);
     const auto existing = registrations_.constFind(id);
     if (existing != registrations_.cend()
         && existing->hwnd == hwnd
         && existing->region == region
-        && existing->intervalMs == intervalMs) {
+        && existing->intervalMs == intervalMs
+        && existing->targets == normalizedTargets) {
         return;
     }
 
@@ -113,6 +129,7 @@ void StatisticsCoordinator::upsert(
         nextVersion_++,
         clock_(),
         false,
+        normalizedTargets,
     });
     rephaseRegistrations();
     armTimer();
@@ -286,6 +303,7 @@ void StatisticsCoordinator::dispatchBatch(
 {
     QList<Snapshot> snapshots;
     QList<std::optional<QRect>> regions;
+    QList<PixelColorTarget> targets;
     snapshots.reserve(ids.size());
     regions.reserve(ids.size());
     for (const ReplicaId id : ids) {
@@ -299,6 +317,9 @@ void StatisticsCoordinator::dispatchBatch(
         } while (iterator->nextDueMs <= nowMs);
         snapshots.append(Snapshot{id, hwnd, iterator->region, iterator->version, nowMs});
         regions.append(iterator->region);
+        for (const auto& target : iterator->targets) {
+            if (!targets.contains(target)) { targets.append(target); }
+        }
     }
     if (snapshots.isEmpty()) {
         return;
@@ -318,14 +339,14 @@ void StatisticsCoordinator::dispatchBatch(
     const QPointer<StatisticsCoordinator> guard(this);
     const auto capture = capture_;
     const qint64 queuedAt = PerformanceRecorder::enabled() ? PerformanceRecorder::nowNs() : 0;
-    executor_([guard, capture, hwnd, snapshots, regions, queuedAt] {
+    executor_([guard, capture, hwnd, snapshots, regions, targets, queuedAt] {
         const qint64 startedAt = queuedAt != 0 ? PerformanceRecorder::nowNs() : 0;
         if (queuedAt != 0) {
             PerformanceRecorder::record("scheduler.worker_wait", startedAt - queuedAt, hwnd);
         }
         BatchOutcome outcome;
         try {
-            outcome.results = capture(hwnd, regions);
+            outcome.results = capture(hwnd, regions, targets);
             outcome.failed = outcome.results.size() != snapshots.size();
         } catch (...) {
             outcome.failed = true;
@@ -392,6 +413,7 @@ void StatisticsCoordinator::completeBatch(
                     snapshot.id,
                     results[index]->redCount,
                     results[index]->whiteCount);
+                emit colorStatisticsReady(snapshot.id, *results[index]);
             }
         }
     }

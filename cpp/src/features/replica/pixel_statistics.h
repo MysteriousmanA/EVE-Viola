@@ -5,8 +5,8 @@
 #include <QString>
 #include <QStringList>
 
-// Presentation metadata; existing includes keep access to the calculator API.
-enum class PixelColorCategory { Red, White };
+// Preset names; target normalization and RGB matching live behind the calculator API.
+enum class PixelColorCategory { Red, White, Blue };
 
 [[nodiscard]] QString pixelColorCategoryName(PixelColorCategory category);
 [[nodiscard]] QStringList pixelColorCategoryNames();

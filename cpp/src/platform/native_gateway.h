@@ -112,8 +112,8 @@ public:
         std::uintptr_t sourceHwnd) const;
     void resumeThumbnailSource(std::uintptr_t hwnd) const;
     std::uintptr_t activateWindow(std::uintptr_t hwnd) const;
-    void noteEveMouseButtonPressed() noexcept;
-    void noteEveMouseButtonReleased() noexcept;
+    void noteInputPressed() noexcept;
+    void noteInputReleased() noexcept;
     void setAutomaticActivationMouseQuietPeriodMs(int milliseconds) noexcept;
     void queueAutomaticActivation(
         std::uint64_t replicaId,
@@ -133,7 +133,8 @@ public:
     [[nodiscard]] std::function<QImage(std::uintptr_t)> frameCaptureFunction() const;
     [[nodiscard]] QList<std::optional<PixelStatistics>> captureWindowStatistics(
         std::uintptr_t hwnd,
-        const QList<std::optional<QRect>>& regions) const;
+        const QList<std::optional<QRect>>& regions,
+        const QList<PixelColorTarget>& targets = {}) const;
 
 private:
     NativeFunctions functions_;

@@ -2,12 +2,16 @@
 
 #include <algorithm>
 #include <QGuiApplication>
+#include <QCheckBox>
 #include <QJsonObject>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QScreen>
 #include <QSignalBlocker>
 #include <QSlider>
+#include <QSpinBox>
+#include "features/desktop_pet/astrbot_notifier.h"
 #include "ui/desktop_pet/avatar_crop_widget.h"
 #include "ui/desktop_pet/floating_pet_window.h"
 
@@ -27,6 +31,15 @@ void DesktopPetPage::loadSettings()
     }
     const QJsonObject& settings = loaded.settings;
     petEnabled_ = settings.value(QStringLiteral("enabled")).toBool(false);
+    mode_ = desktopPetModeFromKey(settings.value(QStringLiteral("mode")).toString());
+    petWindow_->setMode(mode_);
+    localMessagesEnabled_->setChecked(settings.value(QStringLiteral("localMessagesEnabled")).toBool(true));
+    const auto astrBot = AstrBotSettings::fromJson(settings.value(QStringLiteral("astrBot")).toObject());
+    astrBotEnabled_->setChecked(astrBot.enabled);
+    astrBotServerUrl_->setText(astrBot.serverUrl);
+    astrBotApiKey_->setText(astrBot.apiKey);
+    astrBotUmo_->setText(astrBot.umo);
+    astrBotCooldown_->setValue(astrBot.cooldownSeconds);
     const QJsonObject messageSettings = settings.value(QStringLiteral("triggerMessages")).toObject();
     for (auto it = messageSettings.constBegin(); it != messageSettings.constEnd(); ++it) {
         bool numberIsValid = false;
@@ -95,9 +108,12 @@ void DesktopPetPage::saveSettings() const
         {QStringLiteral("offsetY"), offset.y()},
         {QStringLiteral("size"), sizeSlider_->value()},
         {QStringLiteral("enabled"), petEnabled_},
+        {QStringLiteral("mode"), desktopPetModeKey(mode_)},
         {QStringLiteral("x"), petWindow_->pos().x()},
         {QStringLiteral("y"), petWindow_->pos().y()},
         {QStringLiteral("triggerMessages"), messages},
+        {QStringLiteral("localMessagesEnabled"), localMessagesEnabled_->isChecked()},
+        {QStringLiteral("astrBot"), astrBotSettings().toJson()},
     };
     static_cast<void>(settingsStore_.save(settings));
 }

@@ -5,12 +5,14 @@
 #include <QWidget>
 
 #include "ui/desktop_pet/desktop_pet_constants.h"
+#include "features/desktop_pet/desktop_pet_mode.h"
 
 class QLabel;
 class QTimer;
 class QMouseEvent;
 class QWheelEvent;
 class QContextMenuEvent;
+class QMenu;
 
 class FloatingPetWindow final : public QWidget {
     Q_OBJECT
@@ -23,10 +25,15 @@ public:
     void showMessage(const QString& message);
 
     void hideByUser();
+    void clearMessage();
+    void setMode(DesktopPetMode mode);
+    DesktopPetMode mode() const { return mode_; }
+    QMenu* buildContextMenu();
 
 signals:
     void hiddenByUser();
-    void fishModeToggled(bool enabled);
+    void modeChanged(DesktopPetMode mode);
+    void stopSoftwareRequested();
     void autoHiddenByMessage();
     void positionChanged(const QPoint& position);
     void avatarGeometryChanged(const QPoint& petCenter, int avatarSize);
@@ -50,7 +57,7 @@ protected:
 private:
     void initializeMessageBubble();
 
-    bool fishModeEnabled_{};
+    DesktopPetMode mode_{DesktopPetMode::Resident};
     void keepWindowOnScreen();
 
     void collapseMessageBubble();

@@ -2,20 +2,29 @@
 
 #include <QComboBox>
 #include <QLabel>
+#include <QGridLayout>
+#include <QPushButton>
 #include "config/config_validation.h"
 #include "features/replica/pixel_statistics.h"
 #include "ui/replica_row/scroll_passthrough_controls.h"
+#include "ui/pixel_color_editor.h"
 
 using namespace ReplicaRowUi;
 
 void ReplicaRow::initializeStatisticsControls()
 {
-    redPercentageLabel_ = new QLabel(
-        pixelColorCategoryName(PixelColorCategory::Red) + QStringLiteral("像素：--"));
-    redPercentageLabel_->setObjectName(QStringLiteral("redPixelPercentage"));
-    whitePercentageLabel_ = new QLabel(
-        pixelColorCategoryName(PixelColorCategory::White) + QStringLiteral("像素：--"));
-    whitePercentageLabel_->setObjectName(QStringLiteral("whitePixelPercentage"));
+    pixelStatisticsHost_ = new QWidget(this);
+    new QGridLayout(pixelStatisticsHost_);
+    statisticsColorsButton_ = new QPushButton(QStringLiteral("统计颜色…"), this);
+    statisticsColorsButton_->setObjectName(QStringLiteral("statisticsColors"));
+    setStatisticsColors(statisticsColors_);
+    connect(statisticsColorsButton_, &QPushButton::clicked, this, [this] {
+        const auto colors = promptStatisticsColors(this, statisticsColors_);
+        if (colors && *colors != statisticsColors_) {
+            setStatisticsColors(*colors);
+            emit statisticsColorsChanged(statisticsColors_);
+        }
+    });
 
     statisticsInterval_ = new ScrollPassthroughCombo;
     statisticsInterval_->setObjectName(QStringLiteral("statisticsInterval"));
@@ -39,20 +48,47 @@ void ReplicaRow::initializeStatisticsControls()
 
 void ReplicaRow::setPixelStatistics(qint64 redCount, qint64 whiteCount)
 {
-    redPercentageLabel_->setText(
-        pixelColorCategoryName(PixelColorCategory::Red)
-        + QStringLiteral("像素：%1").arg(redCount));
-    whitePercentageLabel_->setText(
-        pixelColorCategoryName(PixelColorCategory::White)
-        + QStringLiteral("像素：%1").arg(whiteCount));
+    setColorStatistics(PixelStatistics{0, redCount, whiteCount});
+}
+
+void ReplicaRow::setStatisticsColors(const QList<PixelColorTarget>& colors)
+{
+    statisticsColors_ = normalizedPixelColorTargets(colors);
+    qDeleteAll(pixelStatisticsLabels_);
+    pixelStatisticsLabels_.clear();
+    auto* layout = static_cast<QGridLayout*>(pixelStatisticsHost_->layout());
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setHorizontalSpacing(12);
+    for (qsizetype index = 0; index < statisticsColors_.size(); ++index) {
+        const auto& target = statisticsColors_[index];
+        auto* label = new QLabel(pixelStatisticsHost_);
+        if (target.color == QStringLiteral("红色")) { label->setObjectName(QStringLiteral("redPixelPercentage")); }
+        else if (target.color == QStringLiteral("白色")) { label->setObjectName(QStringLiteral("whitePixelPercentage")); }
+        else if (target.color == QStringLiteral("蓝色")) { label->setObjectName(QStringLiteral("bluePixelPercentage")); }
+        else { label->setObjectName(QStringLiteral("customPixelCount%1").arg(index)); }
+        label->setToolTip(target.tolerance < 0 ? QStringLiteral("使用预设颜色判定范围") :
+                          QStringLiteral("%1；RGB 每通道容差：%2").arg(target.color).arg(target.tolerance));
+        layout->addWidget(label, static_cast<int>(index / 3), static_cast<int>(index % 3));
+        pixelStatisticsLabels_.append(label);
+    }
+    clearPixelStatistics();
+}
+
+void ReplicaRow::setColorStatistics(const PixelStatistics& statistics)
+{
+    for (qsizetype index = 0; index < statisticsColors_.size(); ++index) {
+        const auto& target = statisticsColors_[index];
+        const auto count = statistics.count(target);
+        pixelStatisticsLabels_[index]->setText(target.color + QStringLiteral("像素：") +
+                                               (count < 0 ? QStringLiteral("--") : QString::number(count)));
+    }
 }
 
 void ReplicaRow::clearPixelStatistics()
 {
-    redPercentageLabel_->setText(
-        pixelColorCategoryName(PixelColorCategory::Red) + QStringLiteral("像素：--"));
-    whitePercentageLabel_->setText(
-        pixelColorCategoryName(PixelColorCategory::White) + QStringLiteral("像素：--"));
+    for (qsizetype index = 0; index < statisticsColors_.size(); ++index) {
+        pixelStatisticsLabels_[index]->setText(statisticsColors_[index].color + QStringLiteral("像素：--"));
+    }
 }
 
 void ReplicaRow::setStatisticsInterval(int milliseconds)

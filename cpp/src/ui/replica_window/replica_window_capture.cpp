@@ -59,6 +59,7 @@ void ReplicaWindow::beginRegionCapture()
     if (!thumbnail_.has_value() || !source_.has_value() || capturingRegion_ || frameCapturePending_) {
         return;
     }
+    cancelAdvancedLogic();
     emptyLabel_->hide();
     frameCapturePending_ = true;
     frameCaptureRequest_ = statisticsCoordinator_.requestFrame(
@@ -113,6 +114,7 @@ void ReplicaWindow::applyRegionPreset(const RegionPreset& preset)
         emit regionCaptureChanged(QStringLiteral("未发现区域，已重置"));
         return;
     }
+    cancelAdvancedLogic();
     capturedRegion_ = applied;
     selectedRegion_.reset();
     applyContentAspectRatio();
@@ -144,6 +146,7 @@ void ReplicaWindow::setCapturedRegion(const QRect& region)
         emit regionCaptureChanged(QStringLiteral("未发现区域，已重置"));
         return;
     }
+    cancelAdvancedLogic();
     capturedRegion_ = applied;
     selectedRegion_.reset();
     applyContentAspectRatio();
@@ -166,6 +169,7 @@ void ReplicaWindow::finishRegionCapture(bool confirmed)
     if (confirmed && region.has_value() && !region->isEmpty()) {
         const auto sourceRegion = mapToSource(*region);
         if (sourceRegion.has_value()) {
+            cancelAdvancedLogic();
             capturedRegion_ = sourceRegion;
             applyContentAspectRatio();
             emit regionCaptured(*sourceRegion);

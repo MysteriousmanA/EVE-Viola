@@ -32,7 +32,7 @@ ColorRulePage::ColorRulePage(QWidget *parent) : QWidget(parent)
     layout->setSpacing(10);
     layout->addWidget(makeHeading(QStringLiteral("图色逻辑")));
     layout->addWidget(makeDescription(
-        QStringLiteral("维护图色规则草案。本版本只保存规则，不执行像素检测与反馈。")));
+        QStringLiteral("使用红/白/蓝预设或任意自定义颜色的像素数量设置触发条件，可调整颜色匹配容差。")));
 
     auto *addButton = new QPushButton(QStringLiteral("＋ 新增规则"));
     addButton->setObjectName(QStringLiteral("addColorRule"));

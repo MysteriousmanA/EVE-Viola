@@ -37,11 +37,12 @@ void MainWindow::connectReplicaSignals(ReplicaWindow* window, ReplicaRow* row)
                 ? window->source()->title
                 : QString{};
             desktopPetPage_->showRuleMessage(ruleNumber, sourceTitle);
-            if (runtimePolicy_.fishMode && window->source().has_value()
-                && radialSwitchOverlay_ != nullptr) {
-                radialSwitchOverlay_->flashPetAccount(window->source()->hwnd);
-            }
         });
+    connect(window, &ReplicaWindow::colorLogicNotificationRequested,
+            desktopPetPage_, [this, window](int ruleNumber) {
+                desktopPetPage_->showRuleMessage(ruleNumber,
+                    window->source() ? window->source()->title : QString{});
+            });
     connect(
         window,
         &ReplicaWindow::sourceTitleChanged,
@@ -165,9 +166,11 @@ void MainWindow::connectReplicaSignals(ReplicaWindow* window, ReplicaRow* row)
         &ReplicaWindow::setSourceNameVisible);
     connect(
         window,
-        &ReplicaWindow::pixelStatisticsChanged,
+        &ReplicaWindow::colorStatisticsChanged,
         row,
-        &ReplicaRow::setPixelStatistics);
+        &ReplicaRow::setColorStatistics);
+    connect(row, &ReplicaRow::statisticsColorsChanged,
+            window, &ReplicaWindow::setStatisticsColors);
     connect(
         window,
         &ReplicaWindow::pixelStatisticsUnavailable,

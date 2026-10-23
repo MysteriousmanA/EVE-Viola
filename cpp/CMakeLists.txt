@@ -20,11 +20,17 @@ set_tests_properties(cpp_native_import_test PROPERTIES
 )
 
 add_library(eve_viola_domain STATIC
+    src/features/advanced_logic/advanced_logic_types.h
+    src/features/advanced_logic/advanced_logic_engine.h
+    src/features/advanced_logic/advanced_logic_engine.cpp
+    src/config/serialization/advanced_logic_json.h
+    src/config/serialization/advanced_logic_json.cpp
     src/features/replica_list/statistics_workload_estimator.h
     src/features/replica_list/statistics_workload_estimator.cpp
     src/features/page_partition/page_partition_model.h
     src/features/page_partition/page_partition_model.cpp
     src/features/desktop_pet/desktop_pet_settings_store.h
+    src/features/desktop_pet/desktop_pet_mode.h
     src/features/desktop_pet/desktop_pet_settings_store.cpp
     src/features/expedition_timing/expedition_timing_service.h
     src/features/expedition_timing/expedition_timing_service.cpp
@@ -94,6 +100,8 @@ set_tests_properties(cpp_page_feature_services_test PROPERTIES
 )
 
 add_library(eve_viola_cpp_core STATIC
+    src/features/advanced_logic/advanced_logic_service.h
+    src/features/advanced_logic/advanced_logic_service.cpp
     src/app/activation_coordinator.cpp
     src/app/activation_coordinator.h
     src/features/region_preset/preset_service.cpp
@@ -264,6 +272,8 @@ set_tests_properties(cpp_app_config_test PROPERTIES
 )
 
 add_library(eve_viola_cpp_ui STATIC
+    src/features/desktop_pet/astrbot_notifier.h
+    src/features/desktop_pet/astrbot_notifier.cpp
     src/ui/pages/quick_switch/quick_switch_controller.h
     src/ui/pages/quick_switch/quick_switch_controller.cpp
     src/ui/pages/home/home_controller.h
@@ -312,11 +322,14 @@ add_library(eve_viola_cpp_ui STATIC
     src/ui/desktop_pet/desktop_pet_lifecycle.cpp
     src/ui/desktop_pet/desktop_pet_messages.cpp
     src/ui/desktop_pet/desktop_pet_settings.cpp
+    src/ui/desktop_pet/desktop_pet_notifications.cpp
     src/ui/desktop_pet_page.h
     src/ui/expedition_timing_page.cpp
     src/ui/expedition_timing_page.h
     src/ui/configuration_pages.h
     src/ui/main_window.cpp
+    src/ui/pages/advanced_logic/advanced_logic_page.h
+    src/ui/pages/advanced_logic/advanced_logic_page.cpp
     src/ui/main_window/main_window_home.cpp
     src/ui/main_window/main_window_region_presets.cpp
     src/ui/main_window/main_window_color_rules.cpp
@@ -345,6 +358,8 @@ add_library(eve_viola_cpp_ui STATIC
     src/ui/screen_region_capture_overlay.cpp
     src/ui/screen_region_capture_overlay.h
     src/ui/replica_row.cpp
+    src/ui/pixel_color_editor.cpp
+    src/ui/pixel_color_editor.h
     src/ui/replica_row/replica_row_constants.h
     src/ui/replica_row/scroll_passthrough_controls.h
     src/ui/replica_row/replica_row_source.cpp
@@ -377,6 +392,7 @@ target_link_libraries(eve_viola_cpp_ui PUBLIC
     eve_viola_cpp_core
     Qt6::Concurrent
     Qt6::Multimedia
+    Qt6::Network
     Qt6::Widgets
 )
 if(WIN32)
@@ -410,6 +426,14 @@ set_tests_properties(cpp_replica_window_test PROPERTIES
 )
 
 add_executable(cpp_main_window_test tests/main_window_test.cpp)
+add_executable(cpp_advanced_logic_test tests/advanced_logic_test.cpp)
+set_target_properties(cpp_advanced_logic_test PROPERTIES AUTOMOC ON)
+target_link_libraries(cpp_advanced_logic_test PRIVATE eve_viola_cpp_ui Qt6::Test)
+add_test(NAME cpp_advanced_logic_test COMMAND cpp_advanced_logic_test)
+set_tests_properties(cpp_advanced_logic_test PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+)
 set_target_properties(cpp_main_window_test PROPERTIES AUTOMOC ON)
 target_compile_features(cpp_main_window_test PRIVATE cxx_std_20)
 target_include_directories(cpp_main_window_test PRIVATE src)

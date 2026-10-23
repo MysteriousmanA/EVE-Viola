@@ -6,12 +6,14 @@
 #include <QColor>
 #include <QImage>
 #include <QPoint>
+#include <QPointer>
 #include <QRect>
 #include <QWidget>
 
 #include "config/app_config.h"
 #include "ui/audio_feedback_manager.h"
 #include "features/color_rule/color_logic_engine.h"
+#include "features/desktop_pet/desktop_pet_mode.h"
 #include "platform/native_gateway.h"
 #include "features/replica/pixel_statistics.h"
 #include "features/replica/replica_manager.h"
@@ -29,6 +31,7 @@ class QResizeEvent;
 class QShowEvent;
 class QTimer;
 class QWheelEvent;
+class AdvancedLogicService;
 
 class ReplicaWindow final : public QWidget {
     Q_OBJECT
@@ -78,6 +81,7 @@ public:
     [[nodiscard]] const std::optional<QRect>& capturedRegion() const noexcept;
     [[nodiscard]] QSize frozenFrameSize() const noexcept;
     [[nodiscard]] int statisticsIntervalMs() const noexcept;
+    [[nodiscard]] QList<PixelColorTarget> statisticsColors() const { return statisticsColors_; }
     [[nodiscard]] bool colorLogicEnabled() const noexcept;
     [[nodiscard]] int activeColorLogicSlot() const noexcept;
     [[nodiscard]] int colorLogicTriggerCount(int slotIndex) const noexcept;
@@ -89,6 +93,7 @@ public:
     [[nodiscard]] bool raiseOnClickEnabled() const noexcept;
     [[nodiscard]] bool automaticActivationEnabled() const noexcept;
     [[nodiscard]] int automaticActivationCooldownMs() const noexcept;
+    void setAdvancedLogicService(AdvancedLogicService* service);
 
 public slots:
     void beginRegionCapture();
@@ -96,6 +101,7 @@ public slots:
     void setRegionPresets(const QList<RegionPreset>& presets);
     void applyRegionPreset(const RegionPreset& preset);
     void setStatisticsInterval(int milliseconds);
+    void setStatisticsColors(const QList<PixelColorTarget>& colors);
     void setColorRules(const QList<ColorRule>& rules);
     void setColorLogicSlot(int slotIndex, int ruleNumber);
     void setColorLogicEnabled(bool enabled);
@@ -106,7 +112,7 @@ public slots:
     void setRaiseOnClickEnabled(bool enabled);
     void setAutomaticActivationEnabled(bool enabled);
     void setAutomaticActivationCooldownMs(int milliseconds);
-    void setFishModeEnabled(bool enabled);
+    void setDesktopPetMode(DesktopPetMode mode);
     void setPresentationSuppressed(bool suppressed);
     void setWheelZoomLocked(bool locked);
     void resizeToScalePercentage(double percentage);
@@ -119,11 +125,13 @@ signals:
     void closed(ReplicaId replicaId);
     void regionCaptured(const QRect& sourceRegion);
     void pixelStatisticsChanged(qint64 redCount, qint64 whiteCount);
+    void colorStatisticsChanged(const PixelStatistics& statistics);
     void pixelStatisticsUnavailable();
     void statisticsIntervalChanged(int milliseconds);
     void colorLogicEnabledChanged(bool enabled);
     void settingsChanged();
     void colorLogicTriggered(int ruleNumber);
+    void colorLogicNotificationRequested(int ruleNumber);
     void activeColorLogicSlotChanged(int slotIndex);
     void visibilityChanged(bool visible);
     void flashStateChanged(bool active);
@@ -182,10 +190,12 @@ private:
         const QRect& windowRegion) const;
     void syncStatisticsRegistration();
     void acceptFrozenFrame(const QImage& frame);
-    void evaluateColorLogic(qint64 redCount, qint64 whiteCount);
+    void evaluateColorLogic(const PixelStatistics& statistics);
     void handleSourceClick();
     void handleColorLogicTrigger(const ColorLogicEffect& effect);
     void applyColorLogicEffects(const QList<ColorLogicEffect>& effects);
+    void cancelAdvancedLogic();
+    void drainAdvancedLogic();
     void applyColorLogicBorder();
     void toggleActiveColorLogicSlot();
     void positionSourceNameOverlay();
@@ -223,8 +233,18 @@ private:
     int statisticsIntervalMs_{kDefaultStatisticsIntervalMs};
     qint64 lastRedCount_{};
     qint64 lastWhiteCount_{};
+    PixelStatistics lastStatistics_;
+    QList<PixelColorTarget> statisticsColors_{defaultPixelColorTargets()};
 
     ColorLogicEngine colorLogicEngine_;
+    QPointer<AdvancedLogicService> advancedLogicService_;
+    struct PendingAdvancedFeedback {
+        ColorLogicEffect effect;
+        PixelStatistics statistics;
+    };
+    QHash<quint64, PendingAdvancedFeedback> pendingAdvancedFeedbacks_;
+    QList<quint64> approvedAdvancedFeedbacks_;
+    bool drainingAdvancedLogic_{};
     QList<ColorRule> appliedColorRules_;
     QColor colorLogicSlotColor_[2]{QColor(46, 204, 64), QColor(41, 121, 255)};
     QColor borderColor_{QColor(255, 255, 255)};
@@ -241,7 +261,7 @@ private:
     bool raiseOnClickEnabled_{true};
     bool wheelZoomLocked_{false};
     bool automaticActivationEnabled_{true};
-    bool fishModeEnabled_{false};
+    DesktopPetMode desktopPetMode_{DesktopPetMode::Resident};
     bool presentationSuppressed_{false};
     bool audioFeedbackEnabled_{true};
     int automaticActivationCooldownMs_{kDefaultAutomaticActivationCooldownMs};

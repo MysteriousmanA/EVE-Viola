@@ -11,6 +11,47 @@ class AppConfigTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void statisticsColorsAndRuleToleranceRoundTripInReplicasAndPresets()
+    {
+        QTemporaryDir directory;
+        JsonConfigStore store(directory.path());
+        AppConfig expected;
+        ReplicaConfig replica;
+        replica.statisticsColors = {{QStringLiteral("蓝色")}, {QStringLiteral("#abcdef"), 15}};
+        expected.replicas.append(replica);
+        expected.presets[0].hasConfig = true;
+        expected.presets[0].replicas = expected.replicas;
+        ColorRule rule;
+        rule.number = 1;
+        rule.triggerCondition1 = {QStringLiteral("#abcdef"), QStringLiteral(">=2"), 15};
+        rule.triggerCondition2 = {QStringLiteral("蓝色"), QStringLiteral("<10"), 0};
+        expected.colorRules.append(rule);
+        QString error;
+        QVERIFY2(store.save(expected, &error), qPrintable(error));
+        AppConfig actual;
+        QVERIFY2(store.load(actual, &error), qPrintable(error));
+        QCOMPARE(actual.replicas, expected.replicas);
+        QCOMPARE(actual.presets[0], expected.presets[0]);
+        QCOMPARE(actual.colorRules, expected.colorRules);
+    }
+
+    void legacyAndInvalidStatisticsColorsUseRedWhiteBlueDefaults()
+    {
+        QTemporaryDir directory;
+        QFile file(directory.filePath(QStringLiteral("replicas.json")));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(R"({"replicas":[{}, {"statisticsColors":[]},
+            {"statisticsColors":[{"color":"bad"}]}]})");
+        file.close();
+        AppConfig config;
+        QString error;
+        QVERIFY2(JsonConfigStore(directory.path()).load(config, &error), qPrintable(error));
+        QCOMPARE(config.replicas.size(), 3);
+        for (const auto& replica : config.replicas) {
+            QVERIFY(replica.statisticsColors == defaultPixelColorTargets());
+        }
+    }
+
     void saveRejectsCorruptLaterSectionBeforeWritingAnyOtherFile()
     {
         QTemporaryDir directory;

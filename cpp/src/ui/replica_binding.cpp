@@ -20,6 +20,7 @@ void ReplicaBinding::attach(ReplicaController& controller, ReplicaWindow& window
             state.slotColor1 = window.colorLogicSlotColor(1);
             state.slotColor2 = window.colorLogicSlotColor(2);
             state.sourceNameVisible = window.sourceNameVisible();
+            state.statisticsColors = window.statisticsColors();
         });
     });
     QObject::connect(&window, &ReplicaWindow::sourceTitleChanged, lifetime,

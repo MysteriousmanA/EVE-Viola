@@ -53,7 +53,7 @@ void MainWindow::refreshConfigurationPages()
     pagePartitionPage_->setPartitionConfig(config_.pagePartition);
     for (auto* window : windows_) {
         window->setAutomaticActivationEnabled(
-            config_.activateSourceOnColorLogicTrigger && !runtimePolicy_.fishMode);
+            runtimePolicy_.automaticActivation(config_.activateSourceOnColorLogicTrigger));
         window->setAutomaticActivationCooldownMs(
             config_.automaticActivationCooldownMs);
     }

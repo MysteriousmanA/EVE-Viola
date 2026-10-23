@@ -13,6 +13,7 @@ ColorLogicEngine::ColorLogicEngine(QList<ColorRule> rules)
 
 QList<ColorLogicEffect> ColorLogicEngine::setRules(QList<ColorRule> rules)
 {
+    notificationCondition_ = false;
     QList<ColorLogicEffect> effects;
     for (int slot = 0; slot < 2; ++slot) {
         if (slots_[slot].ruleNumber != 0
@@ -35,6 +36,7 @@ QList<ColorLogicEffect> ColorLogicEngine::setSlotRule(int slotIndex, int ruleNum
         return {};
     }
     const int slot = slotIndex - 1;
+    notificationCondition_ = false;
     auto effects = cancelSlotFeedback(slot);
     slots_[slot].ruleNumber = ruleNumber;
     slots_[slot].condition = false;
@@ -48,6 +50,7 @@ QList<ColorLogicEffect> ColorLogicEngine::setEnabled(bool enabled)
         return {};
     }
     enabled_ = enabled;
+    notificationCondition_ = false;
     QList<ColorLogicEffect> effects;
     for (int slot = 0; slot < 2; ++slot) {
         if (!enabled_) {
@@ -65,6 +68,7 @@ QList<ColorLogicEffect> ColorLogicEngine::setActiveSlot(int slotIndex)
         return {};
     }
     auto effects = cancelSlotFeedback(activeSlot_ - 1);
+    notificationCondition_ = false;
     activeSlot_ = slotIndex;
     slots_[0].condition = false;
     slots_[1].condition = false;
@@ -73,7 +77,36 @@ QList<ColorLogicEffect> ColorLogicEngine::setActiveSlot(int slotIndex)
     return effects;
 }
 
+QList<ColorLogicEffect> ColorLogicEngine::resetPendingFeedback()
+{
+    QList<ColorLogicEffect> effects;
+    for (int slot = 0; slot < 2; ++slot) {
+        effects.append(cancelSlotFeedback(slot));
+        slots_[slot].condition = false;
+        slots_[slot].replayRequested = false;
+    }
+    notificationCondition_ = false;
+    ColorLogicEffect flash;
+    flash.kind = ColorLogicEffectKind::SetFlashActive;
+    effects.append(flash);
+    return effects;
+}
+
+std::optional<int> ColorLogicEngine::observeNotification(const PixelStatistics& statistics)
+{
+    const ColorRule* rule = enabled_ ? findRule(ruleNumberForSlot(activeSlot_)) : nullptr;
+    const bool met = rule && conditionMet(*rule, statistics);
+    const bool triggered = met && !notificationCondition_;
+    notificationCondition_ = met;
+    return triggered ? std::optional<int>(rule->number) : std::nullopt;
+}
+
 QList<ColorLogicEffect> ColorLogicEngine::observe(qint64 redCount, qint64 whiteCount)
+{
+    return observe(PixelStatistics{0, redCount, whiteCount});
+}
+
+QList<ColorLogicEffect> ColorLogicEngine::observe(const PixelStatistics& statistics, bool deferFeedback)
 {
     if (!enabled_) {
         return {};
@@ -85,7 +118,7 @@ QList<ColorLogicEffect> ColorLogicEngine::observe(qint64 redCount, qint64 whiteC
 
     const auto& state = slots_[slot];
     const ColorRule* rule = findRule(state.ruleNumber);
-    const bool met = rule != nullptr && conditionMet(*rule, redCount, whiteCount);
+    const bool met = rule != nullptr && conditionMet(*rule, statistics);
     if (slots_[slot].busy) {
         slots_[slot].condition = met;
         return {ColorLogicEffect{
@@ -116,7 +149,7 @@ QList<ColorLogicEffect> ColorLogicEngine::observe(qint64 redCount, qint64 whiteC
     }
 
     ++slots_[slot].triggerCount;
-    slots_[slot].busy = true;
+    slots_[slot].busy = !deferFeedback;
     slots_[slot].replayRequested = false;
     ColorLogicEffect effect{
         ColorLogicEffectKind::Triggered,
@@ -126,6 +159,13 @@ QList<ColorLogicEffect> ColorLogicEngine::observe(qint64 redCount, qint64 whiteC
         rule->triggerFeedbackAudio,
         0,
         true};
+    slots_[slot].latestFeedbackId = effect.feedbackId;
+    slots_[slot].replayBlocked = false;
+    if (deferFeedback) {
+        deferredFeedbacks_.insert(effect.feedbackId,
+            ActiveFeedback{effect.feedbackId, slot, rule->triggerFeedback});
+        return {effect};
+    }
     activeFeedback_ = ActiveFeedback{effect.feedbackId, slot, rule->triggerFeedback};
     if (rule->triggerFeedback == TriggerFeedback::None) {
         activeFeedback_.reset();
@@ -161,6 +201,38 @@ QList<ColorLogicEffect> ColorLogicEngine::feedbackCompleted(quint64 feedbackId)
     const int slot = activeFeedback_->slotIndex;
     activeFeedback_.reset();
     return completeSlot(slot);
+}
+
+QList<ColorLogicEffect> ColorLogicEngine::feedbackSuppressed(quint64 feedbackId)
+{
+    const auto pending = deferredFeedbacks_.find(feedbackId);
+    if (pending != deferredFeedbacks_.end()) {
+        auto& state = slots_[pending->slotIndex];
+        if (state.latestFeedbackId == feedbackId) {
+            state.replayRequested = false;
+            state.replayBlocked = true;
+        }
+        deferredFeedbacks_.erase(pending);
+        return {};
+    }
+    if (!activeFeedback_ || activeFeedback_->id != feedbackId) { return {}; }
+    const int slot = activeFeedback_->slotIndex;
+    activeFeedback_.reset();
+    slots_[slot].busy = false;
+    slots_[slot].replayRequested = false;
+    slots_[slot].replayBlocked = true;
+    return {};
+}
+
+bool ColorLogicEngine::activateDeferredFeedback(quint64 feedbackId)
+{
+    if (activeFeedback_) { return false; }
+    const auto pending = deferredFeedbacks_.find(feedbackId);
+    if (pending == deferredFeedbacks_.end()) { return false; }
+    activeFeedback_ = pending.value();
+    deferredFeedbacks_.erase(pending);
+    slots_[activeFeedback_->slotIndex].busy = true;
+    return true;
 }
 
 QList<ColorLogicEffect> ColorLogicEngine::feedbackFailed(quint64 feedbackId)
@@ -219,8 +291,7 @@ const ColorRule* ColorLogicEngine::findRule(int number) const
 
 bool ColorLogicEngine::conditionMet(
     const ColorRule& rule,
-    qint64 redCount,
-    qint64 whiteCount) const
+    const PixelStatistics& statistics) const
 {
     const ColorRuleCondition conditions[]{rule.triggerCondition1, rule.triggerCondition2};
     int activeConditionCount = 0;
@@ -230,7 +301,7 @@ bool ColorLogicEngine::conditionMet(
         }
         ++activeConditionCount;
         const auto parsed = parseTriggerCondition(ruleCondition.expression);
-        const qint64 count = relevantCount(ruleCondition, redCount, whiteCount);
+        const qint64 count = statistics.count({ruleCondition.pixel, ruleCondition.tolerance});
         if (count < 0 || !parsed.has_value() || parsed->isEmpty()
             || !evaluateTriggerCondition(*parsed, static_cast<double>(count))) {
             return false;
@@ -239,26 +310,14 @@ bool ColorLogicEngine::conditionMet(
     return activeConditionCount > 0;
 }
 
-qint64 ColorLogicEngine::relevantCount(
-    const ColorRuleCondition& condition,
-    qint64 redCount,
-    qint64 whiteCount) const
-{
-    if (condition.pixel.compare(
-            pixelColorCategoryName(PixelColorCategory::Red), Qt::CaseInsensitive) == 0) {
-        return redCount;
-    }
-    if (condition.pixel.compare(
-            pixelColorCategoryName(PixelColorCategory::White), Qt::CaseInsensitive) == 0) {
-        return whiteCount;
-    }
-    return -1;
-}
-
 QList<ColorLogicEffect> ColorLogicEngine::cancelSlotFeedback(int slotIndex)
 {
     if (slotIndex < 0 || slotIndex >= 2) {
         return {};
+    }
+    const auto deferredIds = deferredFeedbacks_.keys();
+    for (const auto id : deferredIds) {
+        if (deferredFeedbacks_[id].slotIndex == slotIndex) { deferredFeedbacks_.remove(id); }
     }
     if (!activeFeedback_.has_value() || activeFeedback_->slotIndex != slotIndex) {
         slots_[slotIndex].busy = false;
@@ -290,7 +349,7 @@ QList<ColorLogicEffect> ColorLogicEngine::completeSlot(int slotIndex)
     }
     switch (rule->postTriggerAction) {
     case PostTriggerAction::Loop:
-        slots_[slotIndex].replayRequested = true;
+        slots_[slotIndex].replayRequested = !slots_[slotIndex].replayBlocked;
         return {};
     case PostTriggerAction::Jump: {
         const int other = activeSlot_ == 1 ? 2 : 1;

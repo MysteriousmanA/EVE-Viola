@@ -6,6 +6,7 @@
 #include <QSystemTrayIcon>
 #include <QTimer>
 #include "features/quick_switch/quick_switch_service.h"
+#include "features/advanced_logic/advanced_logic_service.h"
 #include "platform/window_catalog.h"
 #include "ui/account_switch_controller.h"
 #include "ui/region_capture_controller.h"
@@ -19,6 +20,7 @@ void MainWindow::connectStatisticsShutdown()
 
 MainWindow::~MainWindow()
 {
+    advancedLogicService_->stop();
     closing_ = true;
     regionCaptureController_->finishScreenRegionCapture({}, false);
     accountSwitchController_->stop();
@@ -39,6 +41,7 @@ void MainWindow::closeEvent(QCloseEvent* event)
         return;
     }
     if (!closing_) {
+        advancedLogicService_->stop();
         closing_ = true;
         setEnabled(false);
         persistConfiguration();

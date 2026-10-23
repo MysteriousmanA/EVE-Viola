@@ -134,20 +134,19 @@ ActivationCoordinator::ActivationCoordinator(Activate activate, Clock clock)
     , automaticActivationMouseQuietPeriodMs_(kDefaultAutomaticActivationMouseQuietPeriodMs)
 {
 }
-void ActivationCoordinator::noteEveMouseButtonPressed() noexcept
+void ActivationCoordinator::noteInputPressed() noexcept
 {
-    lastEveMouseActivityMs_.store(
-        clock_());
-    activeEveMouseButtons_.fetch_add(1);
+    lastInputActivityMs_.store(clock_());
+    activeInputs_.fetch_add(1);
 }
 
-void ActivationCoordinator::noteEveMouseButtonReleased() noexcept
+void ActivationCoordinator::noteInputReleased() noexcept
 {
-    lastEveMouseActivityMs_.store(clock_());
-    int activeButtons = activeEveMouseButtons_.load();
-    while (activeButtons > 0
-           && !activeEveMouseButtons_.compare_exchange_weak(
-               activeButtons, activeButtons - 1)) {
+    lastInputActivityMs_.store(clock_());
+    int activeInputs = activeInputs_.load();
+    while (activeInputs > 0
+           && !activeInputs_.compare_exchange_weak(
+               activeInputs, activeInputs - 1)) {
     }
 }
 
@@ -160,14 +159,14 @@ void ActivationCoordinator::setAutomaticActivationMouseQuietPeriodMs(
             : kDefaultAutomaticActivationMouseQuietPeriodMs);
 }
 
-bool ActivationCoordinator::hasRecentEveMouseActivity() const noexcept
+bool ActivationCoordinator::hasRecentInputActivity() const noexcept
 {
-    if (activeEveMouseButtons_.load() > 0) {
+    if (activeInputs_.load() > 0) {
         return true;
     }
 
     const std::int64_t lastActivityMs =
-        lastEveMouseActivityMs_.load();
+        lastInputActivityMs_.load();
     const int quietPeriodMs = automaticActivationMouseQuietPeriodMs_.load();
     return lastActivityMs > 0
         && clock_() - lastActivityMs < quietPeriodMs;
@@ -296,12 +295,12 @@ void ActivationCoordinator::flushAutomaticActivations()
     }
 
     const auto& [replicaId, request] = *pending.cbegin();
-    if (hasRecentEveMouseActivity()) {
+    if (hasRecentInputActivity()) {
         logAutomaticActivationOutcome(
             replicaId,
             request,
             QStringLiteral("skipped"),
-            QStringLiteral("recent_eve_mouse_activity"),
+            QStringLiteral("recent_input_activity"),
             windowStateBefore);
         return;
     }

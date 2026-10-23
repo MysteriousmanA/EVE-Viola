@@ -34,6 +34,7 @@ public:
     [[nodiscard]] QString currentRegionPresetName() const noexcept;
     [[nodiscard]] QString currentRegionFilterName() const;
     [[nodiscard]] QComboBox* sourceCombo() const noexcept;
+    [[nodiscard]] QList<PixelColorTarget> statisticsColors() const { return statisticsColors_; }
 
 public slots:
     void setSourceTitle(const QString& title);
@@ -46,6 +47,8 @@ public slots:
     void setWindowPosition(const QPoint& pos);
     void setWindowSize(const QSize& size);
     void setPixelStatistics(qint64 redCount, qint64 whiteCount);
+    void setColorStatistics(const PixelStatistics& statistics);
+    void setStatisticsColors(const QList<PixelColorTarget>& colors);
     void clearPixelStatistics();
     void setColorRules(const QList<ColorRule>& rules);
     void setColorLogicSlot(int slotIndex, int ruleNumber);
@@ -69,6 +72,7 @@ signals:
     void copyRequested();
     void syncToRequested();
     void statisticsIntervalChanged(int milliseconds);
+    void statisticsColorsChanged(const QList<PixelColorTarget>& colors);
     void replicaVisibilityChanged(bool visible);
     void sourceNameVisibilityChanged(bool visible);
     void saveRegionPresetRequested();
@@ -139,8 +143,10 @@ private:
     QLabel* performanceEstimateLabel_{};
     QWidget* syncActionRow_{};
     bool collapsed_{false};
-    QLabel* redPercentageLabel_{};
-    QLabel* whitePercentageLabel_{};
+    QWidget* pixelStatisticsHost_{};
+    QPushButton* statisticsColorsButton_{};
+    QList<QLabel*> pixelStatisticsLabels_;
+    QList<PixelColorTarget> statisticsColors_{defaultPixelColorTargets()};
     QComboBox* statisticsInterval_{};
     QComboBox* colorLogicSlotA_{};
     QComboBox* colorLogicSlotB_{};

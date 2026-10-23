@@ -3,6 +3,7 @@
 #include "config/json_document_io.h"
 #include "config/serialization/region_presets_json.h"
 #include "config/serialization/color_rules_json.h"
+#include "config/serialization/advanced_logic_json.h"
 #include "config/serialization/replicas_json.h"
 #include "config/serialization/page_partition_json.h"
 #include "config/serialization/presets_json.h"
@@ -50,6 +51,10 @@ bool JsonConfigStore::load(AppConfig& config, QString* error) const
                                         &loaded.nextColorRuleNumber);
     loaded.nextColorRuleNumber = qMax(loaded.nextColorRuleNumber,
                                       root.value(QStringLiteral("nextColorRuleNumber")).toInt(1));
+    if (!readJsonObject(sectionFilePath(directoryPath_, QStringLiteral("advancedLogic.json")), &root, error)) {
+        return false;
+    }
+    loaded.advancedLogic = parseAdvancedLogicConfig(root);
     if (!readJsonObject(pagePartitionPath, &root, error)) {
         return false;
     }
@@ -140,6 +145,10 @@ bool JsonConfigStore::save(const AppConfig& config, QString* error) const
     }
     if (!writeJsonObject(sectionFilePath(directoryPath_, QStringLiteral("pagePartition.json")),
                          pagePartitionConfigToJson(config.pagePartition), error)) {
+        return false;
+    }
+    if (!writeJsonObject(sectionFilePath(directoryPath_, QStringLiteral("advancedLogic.json")),
+                         advancedLogicConfigToJson(config.advancedLogic), error)) {
         return false;
     }
     if (!writeJsonObject(sectionFilePath(directoryPath_, QStringLiteral("replicas.json")),

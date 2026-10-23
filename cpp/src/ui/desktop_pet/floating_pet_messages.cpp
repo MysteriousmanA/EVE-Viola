@@ -24,20 +24,12 @@ void FloatingPetWindow::initializeMessageBubble()
     bubble_->hide();
     messageTimer_ = new QTimer(this);
     messageTimer_->setSingleShot(true);
-    connect(messageTimer_, &QTimer::timeout, this, [this] {
-        collapseMessageBubble();
-        if (autoHideAfterMessage_) {
-            autoHideAfterMessage_ = false;
-            hide();
-            emit autoHiddenByMessage();
-        }
-        emit messageExpired();
-    });
+    connect(messageTimer_, &QTimer::timeout, this, &FloatingPetWindow::clearMessage);
 }
 
 void FloatingPetWindow::showMessage(const QString& message)
 {
-    if (message.trimmed().isEmpty()) {
+    if (message.trimmed().isEmpty() || mode_ == DesktopPetMode::DoNotDisturb) {
         return;
     }
     if (!isVisible()) {
@@ -108,6 +100,19 @@ void FloatingPetWindow::hideByUser()
     collapseMessageBubble();
     hide();
     emit hiddenByUser();
+}
+
+void FloatingPetWindow::clearMessage()
+{
+    messageTimer_->stop();
+    if (!messageVisible_) { return; }
+    collapseMessageBubble();
+    if (autoHideAfterMessage_) {
+        autoHideAfterMessage_ = false;
+        hide();
+        emit autoHiddenByMessage();
+    }
+    emit messageExpired();
 }
 
 void FloatingPetWindow::collapseMessageBubble()

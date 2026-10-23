@@ -12,6 +12,9 @@
 #include <QString>
 #include <QStringList>
 
+#include "features/replica/pixel_statistics_calculator.h"
+#include "features/advanced_logic/advanced_logic_types.h"
+
 inline constexpr int kStatisticsIntervalDisabledMs = 0;
 inline constexpr int kStatisticsIntervalMinimumMs = 500;
 inline constexpr int kStatisticsIntervalMaximumMs = 10000;
@@ -97,6 +100,8 @@ enum class PostTriggerAction {
     ReverseWait,
 };
 
+enum class ColorRulePriority { Normal, High, Immediate };
+
 struct TriggerCondition {
     QString lowerOperator;
     double lowerValue{0.0};
@@ -112,6 +117,7 @@ struct TriggerCondition {
 struct ColorRuleCondition {
     QString pixel;
     QString expression;
+    int tolerance{-1};
 
     [[nodiscard]] bool isEmpty() const noexcept
     {
@@ -121,7 +127,9 @@ struct ColorRuleCondition {
     [[nodiscard]] QString displayText() const
     {
         return isEmpty() ? QString{}
-                         : QStringLiteral("%1 %2").arg(pixel.trimmed(), expression.trimmed());
+                         : QStringLiteral("%1%2 %3").arg(
+                               pixel.trimmed(), tolerance < 0 ? QString{} :
+                                   QStringLiteral("（容差 %1）").arg(tolerance), expression.trimmed());
     }
 
     bool operator==(const ColorRuleCondition&) const = default;
@@ -135,6 +143,7 @@ struct ColorRule {
     TriggerFeedback triggerFeedback{TriggerFeedback::None};
     QString triggerFeedbackAudio;
     PostTriggerAction postTriggerAction{PostTriggerAction::Loop};
+    ColorRulePriority priority{ColorRulePriority::Normal};
 
     ColorRule() = default;
 
@@ -165,6 +174,7 @@ struct ReplicaConfig {
     QSize size{QSize(360, 240)};
     QColor slotColor1{QColor(46, 204, 64)};
     QColor slotColor2{QColor(41, 121, 255)};
+    QList<PixelColorTarget> statisticsColors{defaultPixelColorTargets()};
 
     bool operator==(const ReplicaConfig& other) const
     {
@@ -176,7 +186,8 @@ struct ReplicaConfig {
                activeColorLogicSlot == other.activeColorLogicSlot &&
                sourceNameVisible == other.sourceNameVisible && visible == other.visible &&
                collapsed == other.collapsed && position == other.position && size == other.size &&
-               slotColor1 == other.slotColor1 && slotColor2 == other.slotColor2;
+               slotColor1 == other.slotColor1 && slotColor2 == other.slotColor2 &&
+               statisticsColors == other.statisticsColors;
     }
 };
 
@@ -194,6 +205,7 @@ struct PresetConfig {
 struct AppConfig {
     QList<RegionPreset> regionPresets;
     QList<ColorRule> colorRules;
+    AdvancedLogicConfig advancedLogic;
     PagePartitionConfig pagePartition;
     QList<ReplicaConfig> replicas;
     int nextColorRuleNumber{1};

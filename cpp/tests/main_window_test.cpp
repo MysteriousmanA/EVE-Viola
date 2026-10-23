@@ -6,9 +6,13 @@
 #include <QtTest>
 
 #include <QApplication>
+#include <QAction>
 #include <QCheckBox>
 #include <QDateTimeEdit>
 #include <QDoubleSpinBox>
+#include <QSpinBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QFrame>
 #include <QFile>
 #include <QLabel>
@@ -16,6 +20,8 @@
 #include <QLineEdit>
 #include <QMediaPlayer>
 #include <QMessageBox>
+#include <QMenu>
+#include <memory>
 #include <QPointer>
 #include <QPushButton>
 #include <QRadioButton>
@@ -32,8 +38,14 @@
 #include "ui/audio_feedback_manager.h"
 #include "features/replica/statistics_coordinator.h"
 #include "ui/main_window.h"
+#include "ui/desktop_pet_page.h"
+#include "ui/desktop_pet/floating_pet_window.h"
+#include "ui/page_partition_page.h"
 #include "ui/replica_row.h"
 #include "ui/replica_window.h"
+#include "ui/pages/advanced_logic/advanced_logic_page.h"
+#include "ui/pixel_color_editor.h"
+#include "ui/pages/color_rule/color_rule_dialog.h"
 
 namespace {
 
@@ -125,6 +137,98 @@ class MainWindowTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void statisticsColorDialogEditsPersistAndRestoreWithTheReplica()
+    {
+        const QString path = freshConfigPath();
+        JsonConfigStore store(path);
+        AppConfig initial;
+        ReplicaConfig replica;
+        replica.statisticsIntervalMs = 0;
+        replica.statisticsColors = {{QStringLiteral("#123456"), 12}};
+        initial.replicas.append(replica);
+        QString error;
+        QVERIFY2(store.save(initial, &error), qPrintable(error));
+        NativeGateway gateway(functions());
+        const QList<PixelColorTarget> expected{{QStringLiteral("#ffaa00"), 7}};
+        {
+            MainWindow manager(gateway, path);
+            auto* row = manager.replicaRows().first();
+            QVERIFY(row->statisticsColors() == replica.statisticsColors);
+            QTimer::singleShot(0, [] {
+                auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+                QVERIFY(dialog);
+                auto* table = dialog->findChild<QTableWidget*>(QStringLiteral("statisticsColorsTable"));
+                QVERIFY(table);
+                QCOMPARE(table->rowCount(), 1);
+                auto* editor = static_cast<PixelColorEditor*>(table->cellWidget(0, 0));
+                editor->combo()->setCurrentText(QStringLiteral("#ffaa00"));
+                editor->tolerance()->setValue(7);
+                dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Save)->click();
+            });
+            row->findChild<QPushButton*>(QStringLiteral("statisticsColors"))->click();
+            QVERIFY(row->statisticsColors() == expected);
+            QVERIFY(manager.replicaWindows().first()->statisticsColors() == expected);
+            manager.close();
+        }
+        AppConfig saved;
+        QVERIFY2(store.load(saved, &error), qPrintable(error));
+        QVERIFY(saved.replicas.first().statisticsColors == expected);
+        MainWindow restored(gateway, path);
+        QVERIFY(restored.replicaRows().first()->statisticsColors() == expected);
+        QVERIFY(restored.replicaWindows().first()->statisticsColors() == expected);
+    }
+
+    void colorEditorSupportsExactCustomRgbAndRuleDialogPreservesIt()
+    {
+        PixelColorEditor editor({QStringLiteral("#abcdef"), 0}, false);
+        QVERIFY(editor.target().has_value());
+        QCOMPARE(editor.target()->tolerance, 0);
+        QCOMPARE(editor.tolerance()->text(), QStringLiteral("0"));
+        editor.combo()->setCurrentText(QStringLiteral("bad color"));
+        QVERIFY(!editor.target().has_value());
+        ColorRule initial;
+        initial.number = 3;
+        initial.triggerCondition1 = {QStringLiteral("#123456"), QStringLiteral(">=2"), 12};
+        QTimer::singleShot(0, [] {
+            auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+            QVERIFY(dialog);
+            auto* color = dialog->findChild<QComboBox*>(QStringLiteral("triggerCondition1Pixel"));
+            auto* tolerance = dialog->findChild<QSpinBox*>(QStringLiteral("triggerCondition1Tolerance"));
+            QVERIFY(color);
+            QVERIFY(tolerance);
+            QCOMPARE(color->currentText(), QStringLiteral("#123456"));
+            QCOMPARE(tolerance->value(), 12);
+            color->setCurrentText(QStringLiteral("#00ff00"));
+            tolerance->setValue(20);
+            auto* buttons = dialog->findChild<QDialogButtonBox*>();
+            buttons->button(QDialogButtonBox::Save)->click();
+        });
+        const auto edited = promptColorRule(nullptr, initial);
+        QVERIFY(edited.has_value());
+        QCOMPARE(edited->triggerCondition1.pixel, QStringLiteral("#00ff00"));
+        QCOMPARE(edited->triggerCondition1.tolerance, 20);
+        QCOMPARE(edited->triggerCondition1.expression, QStringLiteral(">=2"));
+    }
+
+    void replicaRowShowsThreePresetsAndCanDisplayCustomColorCounts()
+    {
+        ReplicaRow row(1);
+        QVERIFY(row.statisticsColors() == defaultPixelColorTargets());
+        auto* blue = row.findChild<QLabel*>(QStringLiteral("bluePixelPercentage"));
+        QVERIFY(blue);
+        row.setColorStatistics(PixelStatistics{10, 1, 2, 3});
+        QCOMPARE(blue->text(), QStringLiteral("蓝色像素：3"));
+        row.setStatisticsColors({{QStringLiteral("#123456"), 12}});
+        QImage image(2, 1, QImage::Format_RGB32);
+        image.fill(QColor(QStringLiteral("#123456")));
+        row.setColorStatistics(calculatePixelStatistics(image, std::nullopt, row.statisticsColors()));
+        auto* label = row.findChild<QLabel*>(QStringLiteral("customPixelCount0"));
+        QVERIFY(label);
+        QCOMPARE(label->text(), QStringLiteral("#123456像素：2"));
+        row.clearPixelStatistics();
+        QCOMPARE(label->text(), QStringLiteral("#123456像素：--"));
+    }
+
     void copiedStateAndHiddenGeometryEditsPersistFromTheController()
     {
         QTemporaryDir directory;
@@ -698,7 +802,42 @@ private slots:
         }
     }
 
-    void homeHasEightTabsAndCreateButton()
+    void advancedLogicPagePersistsWhitelistAndPriorityChanges()
+    {
+        QTemporaryDir directory;
+        JsonConfigStore store(directory.path());
+        AppConfig config;
+        ColorRule warning;
+        warning.number = 1;
+        ColorRule acceleration;
+        acceleration.number = 2;
+        config.colorRules = {warning, acceleration};
+        WhitelistSequence sequence;
+        sequence.id = QStringLiteral("evade");
+        sequence.name = QStringLiteral("规避");
+        sequence.nodes = {{1, WhitelistNodeEffect::Keep, {}}, {2, WhitelistNodeEffect::Suppress, {}}};
+        config.advancedLogic = {true, {sequence}};
+        QString error;
+        QVERIFY2(store.save(config, &error), qPrintable(error));
+        NativeGateway gateway(functions());
+        MainWindow manager(gateway, directory.path());
+        auto* page = manager.findChild<AdvancedLogicPage*>();
+        QVERIFY(page);
+        QCOMPARE(page->configuration().sequences.size(), 1);
+        auto* enabled = page->findChild<QCheckBox*>(QStringLiteral("advancedLogicEnabled"));
+        QVERIFY(enabled->isChecked());
+        enabled->setChecked(false);
+        auto* priorities = page->findChild<QTableWidget*>(QStringLiteral("colorRulePriorityTable"));
+        QVERIFY(priorities);
+        qobject_cast<QComboBox*>(priorities->cellWidget(0, 1))->setCurrentIndex(2);
+        AppConfig saved;
+        QVERIFY2(store.load(saved, &error), qPrintable(error));
+        QVERIFY(!saved.advancedLogic.enabled);
+        QCOMPARE(saved.advancedLogic.sequences, config.advancedLogic.sequences);
+        QCOMPARE(saved.colorRules.first().priority, ColorRulePriority::Immediate);
+    }
+
+    void homeHasNineTabsAndCreateButton()
     {
         NativeGateway gateway(functions());
         MainWindow manager(gateway, freshConfigPath());
@@ -706,15 +845,16 @@ private slots:
 
         auto* tabs = manager.findChild<QTabWidget*>(QStringLiteral("mainTabs"));
         QVERIFY(tabs != nullptr);
-        QCOMPARE(tabs->count(), 8);
+        QCOMPARE(tabs->count(), 9);
         QCOMPARE(tabs->tabText(0), QStringLiteral("首页"));
         QCOMPARE(tabs->tabText(1), QStringLiteral("小窗列表"));
         QCOMPARE(tabs->tabText(2), QStringLiteral("区域预设"));
         QCOMPARE(tabs->tabText(3), QStringLiteral("图色逻辑"));
-        QCOMPARE(tabs->tabText(4), QStringLiteral("快捷切屏"));
-        QCOMPARE(tabs->tabText(5), QStringLiteral("页面分区"));
-        QCOMPARE(tabs->tabText(6), QStringLiteral("远征计时"));
-        QCOMPARE(tabs->tabText(7), QStringLiteral("摸鱼桌宠"));
+        QCOMPARE(tabs->tabText(4), QStringLiteral("高级逻辑"));
+        QCOMPARE(tabs->tabText(5), QStringLiteral("快捷切屏"));
+        QCOMPARE(tabs->tabText(6), QStringLiteral("页面分区"));
+        QCOMPARE(tabs->tabText(7), QStringLiteral("远征计时"));
+        QCOMPARE(tabs->tabText(8), QStringLiteral("摸鱼桌宠"));
 
         auto* button = manager.findChild<QPushButton*>(QStringLiteral("createButton"));
         QVERIFY(button != nullptr);
@@ -733,19 +873,19 @@ private slots:
         QVERIFY(tabs != nullptr);
         QVERIFY(startTime != nullptr);
 
-        tabs->setCurrentIndex(6);
+        tabs->setCurrentIndex(7);
         QCoreApplication::processEvents();
         const QDateTime stale(QDate(2000, 1, 1), QTime(0, 0));
         startTime->setDateTime(stale);
         QTest::mouseClick(
             tabs->tabBar(), Qt::LeftButton, Qt::NoModifier,
-            tabs->tabBar()->tabRect(6).center());
+            tabs->tabBar()->tabRect(7).center());
         QVERIFY(startTime->dateTime() != stale);
 
         startTime->setDateTime(stale);
         QTest::mouseClick(
             tabs->tabBar(), Qt::LeftButton, Qt::NoModifier,
-            tabs->tabBar()->tabRect(6).center());
+            tabs->tabBar()->tabRect(7).center());
         QVERIFY(startTime->dateTime() != stale);
         QCOMPARE(startTime->dateTime().time().second(), 0);
     }
@@ -1683,6 +1823,87 @@ private slots:
         });
         QTest::mouseClick(closeAll, Qt::LeftButton);
         QTRY_COMPARE_WITH_TIMEOUT(manager.activeReplicaCount(), std::size_t{0}, 2000);
+    }
+
+    void desktopPetModesHideAndRestoreWindowsAndPartitionLines()
+    {
+        NativeGateway gateway(functions());
+        MainWindow manager(gateway, freshConfigPath());
+        auto* page = manager.findChild<DesktopPetPage*>();
+        auto* partition = manager.findChild<PagePartitionPage*>();
+        QVERIFY(page && partition);
+        PagePartitionConfig lines;
+        lines.lines = {{QStringLiteral("mode-test"), QPoint(50, 50), QPoint(150, 50)}};
+        partition->setPartitionConfig(lines);
+        const auto visibleLines = [] {
+            int count = 0;
+            for (auto* widget : QApplication::topLevelWidgets()) {
+                if (widget->objectName() == QStringLiteral("pagePartitionOverlay") && widget->isVisible()) { ++count; }
+            }
+            return count;
+        };
+        auto* visible = manager.createReplica();
+        auto* hidden = manager.createReplica();
+        manager.replicaRows().last()->findChild<QCheckBox*>(QStringLiteral("replicaVisibility"))->setChecked(false);
+        QVERIFY(visible->isVisible());
+        QVERIFY(!hidden->isVisible());
+        QVERIFY(visibleLines() > 0);
+        page->setMode(DesktopPetMode::Fish);
+        QVERIFY(!visible->isVisible());
+        QCOMPARE(visibleLines(), 0);
+        QVERIFY(partition->partitionConfig().visible);
+        auto* createdWhileHidden = manager.createReplica();
+        QVERIFY(!createdWhileHidden->isVisible());
+        page->setMode(DesktopPetMode::DoNotDisturb);
+        QVERIFY(!visible->isVisible());
+        QCOMPARE(visibleLines(), 0);
+        page->setMode(DesktopPetMode::Resident);
+        QVERIFY(visible->isVisible());
+        QVERIFY(createdWhileHidden->isVisible());
+        QVERIFY(!hidden->isVisible());
+        QVERIFY(visibleLines() > 0);
+        QVERIFY(manager.replicaRows().first()->visibilityChecked());
+    }
+
+    void persistedDoNotDisturbModeAppliesAtStartup()
+    {
+        QTemporaryDir directory;
+        DesktopPetSettingsStore petStore(directory.path());
+        QVERIFY(petStore.save(QJsonObject{{QStringLiteral("mode"), QStringLiteral("doNotDisturb")}}));
+        NativeGateway gateway(functions());
+        MainWindow manager(gateway, directory.path());
+        auto* page = manager.findChild<DesktopPetPage*>();
+        QCOMPARE(page->mode(), DesktopPetMode::DoNotDisturb);
+        auto* window = manager.createReplica();
+        QVERIFY(!window->isVisible());
+        page->setMode(DesktopPetMode::Resident);
+        QVERIFY(window->isVisible());
+    }
+
+    void petStopSoftwareClosesEveryReplicaDespiteTray()
+    {
+        QTemporaryDir directory;
+        JsonConfigStore store(directory.path());
+        AppConfig config;
+        config.keepInTray = true;
+        QVERIFY(store.save(config));
+        NativeGateway gateway(functions());
+        MainWindow manager(gateway, directory.path());
+        manager.show();
+        static_cast<void>(manager.createReplica());
+        auto* page = manager.findChild<DesktopPetPage*>();
+        page->setMode(DesktopPetMode::DoNotDisturb);
+        FloatingPetWindow* pet = nullptr;
+        for (auto* widget : QApplication::topLevelWidgets()) {
+            if (auto* candidate = qobject_cast<FloatingPetWindow*>(widget)) { pet = candidate; }
+        }
+        QVERIFY(pet);
+        std::unique_ptr<QMenu> menu(pet->buildContextMenu());
+        menu->findChild<QAction*>(QStringLiteral("desktopPetStopSoftware"))->trigger();
+        QTRY_COMPARE(manager.activeReplicaCount(), std::size_t{0});
+        QVERIFY(!manager.isVisible());
+        const auto saved = DesktopPetSettingsStore(directory.path()).load();
+        QCOMPARE(saved.settings.value(QStringLiteral("mode")).toString(), QStringLiteral("doNotDisturb"));
     }
 
     void forceQuitButtonClosesEveryReplicaDespiteTray()

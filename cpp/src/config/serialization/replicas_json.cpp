@@ -20,10 +20,16 @@ QJsonObject replicaToJson(const ReplicaConfig& replica)
         replica.colorLogicSlotRule[0],
         replica.colorLogicSlotRule[1],
     };
+    QJsonArray statisticsColors;
+    for (const auto& target : normalizedPixelColorTargets(replica.statisticsColors)) {
+        statisticsColors.append(QJsonObject{{QStringLiteral("color"), target.color},
+                                            {QStringLiteral("tolerance"), target.tolerance}});
+    }
     return {
         {QStringLiteral("sourceTitle"), replica.sourceTitle},
         {QStringLiteral("capturedRegion"), region},
         {QStringLiteral("statisticsIntervalMs"), replica.statisticsIntervalMs},
+        {QStringLiteral("statisticsColors"), statisticsColors},
         {QStringLiteral("colorLogicSlotRules"), slotRules},
         {QStringLiteral("colorLogicEnabled"), replica.colorLogicEnabled},
         {QStringLiteral("activeColorLogicSlot"), replica.activeColorLogicSlot},
@@ -61,6 +67,15 @@ QList<ReplicaConfig> parseReplicas(const QJsonArray& array)
             replica.capturedRegion = region;
         }
         replica.statisticsIntervalMs = statisticsIntervalMs;
+        if (object.contains(QStringLiteral("statisticsColors"))) {
+            QList<PixelColorTarget> colors;
+            for (const auto& entry : object.value(QStringLiteral("statisticsColors")).toArray()) {
+                const auto target = entry.toObject();
+                colors.append({target.value(QStringLiteral("color")).toString(),
+                               target.value(QStringLiteral("tolerance")).toInt(-1)});
+            }
+            replica.statisticsColors = normalizedPixelColorTargets(colors);
+        }
         replica.colorLogicSlotRule[0] = slotRules.size() > 0 ? slotRules[0].toInt() : 0;
         replica.colorLogicSlotRule[1] = slotRules.size() > 1 ? slotRules[1].toInt() : 0;
         replica.colorLogicEnabled = object.value(QStringLiteral("colorLogicEnabled")).toBool();

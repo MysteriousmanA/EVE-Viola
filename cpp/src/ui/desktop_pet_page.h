@@ -13,15 +13,23 @@
 
 #include "config/app_config.h"
 #include "features/desktop_pet/desktop_pet_settings_store.h"
+#include "features/desktop_pet/desktop_pet_mode.h"
 
 class QLabel;
+class QCheckBox;
+class QComboBox;
+class QLineEdit;
+class QSpinBox;
 class QPushButton;
 class QSlider;
 class QTableWidget;
 class QTimer;
+class QVBoxLayout;
 class AvatarCropWidget;
 class AvatarPreviewWidget;
 class FloatingPetWindow;
+class AstrBotNotifier;
+struct AstrBotSettings;
 
 class DesktopPetPage final : public QWidget {
     Q_OBJECT
@@ -32,12 +40,17 @@ public:
 
     void setColorRules(const QList<ColorRule>& rules);
     void showRuleMessage(int ruleNumber, const QString& sourceWindowTitle);
+    DesktopPetMode mode() const { return mode_; }
+
+public slots:
+    void setMode(DesktopPetMode mode);
 
 signals:
     void accountWheelRequested(const QPoint& petCenter, int avatarSize);
     void accountWheelGeometryChanged(const QPoint& petCenter, int avatarSize);
     void accountWheelDismissRequested();
-    void fishModeToggled(bool enabled);
+    void modeChanged(DesktopPetMode mode);
+    void stopSoftwareRequested();
 
 private:
     [[nodiscard]] std::pair<QLabel*, QLabel*> buildLayout();
@@ -45,6 +58,10 @@ private:
     void connectEditorSignals(QLabel* zoomValue, QLabel* sizeValue);
     void connectFloatingPetSignals();
     void restoreEnabledPet();
+    void buildNotificationSettings(QVBoxLayout* layout, QWidget* parent);
+    void connectNotificationSignals();
+    void updateNotificationMode();
+    AstrBotSettings astrBotSettings() const;
 
     void chooseImage();
     void refreshPreview();
@@ -69,6 +86,17 @@ private:
     QTableWidget* rulesTable_{};
     QLabel* rulesEmptyState_{};
     QTimer* messagePersistTimer_{};
+    AstrBotNotifier* astrBotNotifier_{};
+    QCheckBox* localMessagesEnabled_{};
+    QComboBox* modeCombo_{};
+    QLabel* modeDescription_{};
+    QCheckBox* astrBotEnabled_{};
+    QLineEdit* astrBotServerUrl_{};
+    QLineEdit* astrBotApiKey_{};
+    QLineEdit* astrBotUmo_{};
+    QSpinBox* astrBotCooldown_{};
+    QPushButton* astrBotTestButton_{};
+    QLabel* astrBotStatus_{};
     QList<ColorRule> colorRules_;
     QHash<int, QString> ruleMessages_;
     QStringList activeTriggerMessages_;
@@ -76,5 +104,5 @@ private:
     bool petPositionInitialized_{false};
     bool petEnabled_{false};
     bool settingsWritable_{true};
-    bool fishModeEnabled_{false};
+    DesktopPetMode mode_{DesktopPetMode::Resident};
 };

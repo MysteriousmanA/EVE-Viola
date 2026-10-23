@@ -26,6 +26,14 @@ void FloatingPetWindow::setAvatar(const QImage& image, int size)
     update();
 }
 
+void FloatingPetWindow::setMode(DesktopPetMode mode)
+{
+    if (!isValidDesktopPetMode(mode) || mode_ == mode) { return; }
+    mode_ = mode;
+    if (mode == DesktopPetMode::DoNotDisturb) { clearMessage(); }
+    emit modeChanged(mode);
+}
+
 void FloatingPetWindow::paintEvent(QPaintEvent*)
 {
     QPainter painter(this);

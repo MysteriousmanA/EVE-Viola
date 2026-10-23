@@ -109,8 +109,8 @@ void ReplicaRow::buildContentLayout()
 
     auto* pixelLayout = new QHBoxLayout;
     pixelLayout->setSpacing(12);
-    pixelLayout->addWidget(redPercentageLabel_);
-    pixelLayout->addWidget(whitePercentageLabel_);
+    pixelLayout->addWidget(pixelStatisticsHost_, 1);
+    pixelLayout->addWidget(statisticsColorsButton_);
 
     auto* measurementsLayout = new QHBoxLayout;
     measurementsLayout->setSpacing(12);

@@ -35,29 +35,6 @@ bool QuickSwitchService::Impl::isEveClientWindow(HWND hwnd)
     return _wcsicmp(fileName, L"exefile.exe") == 0;
 }
 
-bool QuickSwitchService::Impl::isEveMouseTarget(POINT point)
-{
-    HWND target = WindowFromPoint(point);
-    if (target == nullptr) {
-        return false;
-    }
-
-    HWND root = GetAncestor(target, GA_ROOT);
-    if (root == nullptr) {
-        root = target;
-    }
-    DWORD processId = 0;
-    if (GetWindowThreadProcessId(root, &processId) == 0 || processId == 0) {
-        return false;
-    }
-    if (root != cachedMouseTarget || processId != cachedMouseTargetProcessId) {
-        cachedMouseTarget = root;
-        cachedMouseTargetProcessId = processId;
-        cachedMouseTargetIsEve = isEveClientWindow(root);
-    }
-    return cachedMouseTargetIsEve;
-}
-
 #endif
 
 bool QuickSwitchService::isForegroundWindow(quintptr hwnd) const

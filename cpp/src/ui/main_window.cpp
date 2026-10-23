@@ -5,6 +5,8 @@
 #include <QCoreApplication>
 
 #include "features/quick_switch/quick_switch_service.h"
+#include "features/advanced_logic/advanced_logic_service.h"
+#include "features/desktop_pet/desktop_pet_settings_store.h"
 #include "platform/window_catalog.h"
 #include "ui/pages/home/home_page.h"
 #include "ui/pages/replica_list/replica_list_page.h"
@@ -30,9 +32,13 @@ MainWindow::MainWindow(NativeGateway& gateway, QString configDirectory, QWidget*
 {
     statisticsCoordinator_ = new StatisticsCoordinator(gateway_, this);
     audioFeedbackManager_ = new AudioFeedbackManager(this);
+    advancedLogicService_ = new AdvancedLogicService(this);
 
     QString loadError;
     const bool loaded = loadConfiguration(loadError);
+    const auto petSettings = DesktopPetSettingsStore(configStore_.directoryPath()).load();
+    runtimePolicy_.desktopPetMode = desktopPetModeFromKey(
+        petSettings.settings.value(QStringLiteral("mode")).toString());
     quickSwitchService_ = new QuickSwitchService(gateway_, this);
     windowCatalog_ = new WindowCatalog(gateway_, this);
     initializeAccountSwitchController();
@@ -53,6 +59,7 @@ MainWindow::MainWindow(NativeGateway& gateway, QString configDirectory, QWidget*
     setupPagePartitionEveMonitoring();
 
     restoreConfiguredReplicas();
+    applyRuntimePolicy();
     startQuickSwitch();
     if (!loaded) {
         showConfigurationLoadWarning(loadError);

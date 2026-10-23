@@ -12,7 +12,10 @@ QWidget* MainWindow::buildDesktopPetPage()
             accountSwitchController_, &AccountSwitchController::moveDesktopPetAccountWheel);
     connect(desktopPetPage_, &DesktopPetPage::accountWheelDismissRequested,
             accountSwitchController_, &AccountSwitchController::dismissDesktopPetAccountWheel);
-    connect(desktopPetPage_, &DesktopPetPage::fishModeToggled,
-            this, &MainWindow::setFishModeEnabled);
+    connect(desktopPetPage_, &DesktopPetPage::modeChanged,
+            this, &MainWindow::setDesktopPetMode);
+    connect(desktopPetPage_, &DesktopPetPage::stopSoftwareRequested,
+            this, &MainWindow::forceQuit, Qt::QueuedConnection);
+    runtimePolicy_.desktopPetMode = desktopPetPage_->mode();
     return desktopPetPage_;
 }

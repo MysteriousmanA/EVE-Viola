@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <QAction>
+#include <QActionGroup>
+#include <memory>
 #include <QApplication>
 #include <QContextMenuEvent>
 #include <QGuiApplication>
@@ -108,19 +110,31 @@ void FloatingPetWindow::wheelEvent(QWheelEvent* event)
     event->accept();
 }
 
+QMenu* FloatingPetWindow::buildContextMenu()
+{
+    auto* menu = new QMenu(this);
+    auto* modes = new QActionGroup(menu);
+    modes->setExclusionPolicy(QActionGroup::ExclusionPolicy::Exclusive);
+    for (auto mode : {DesktopPetMode::Resident, DesktopPetMode::Fish, DesktopPetMode::DoNotDisturb}) {
+        auto* action = menu->addAction(desktopPetModeName(mode));
+        action->setObjectName(QStringLiteral("desktopPetMode_%1").arg(desktopPetModeKey(mode)));
+        action->setCheckable(true);
+        modes->addAction(action);
+        action->setChecked(mode_ == mode);
+        connect(action, &QAction::triggered, this, [this, mode] { setMode(mode); });
+    }
+    menu->addSeparator();
+    auto* disable = menu->addAction(QStringLiteral("禁用桌宠"));
+    disable->setObjectName(QStringLiteral("desktopPetDisable"));
+    connect(disable, &QAction::triggered, this, &FloatingPetWindow::hideByUser);
+    auto* stop = menu->addAction(QStringLiteral("停止软件"));
+    stop->setObjectName(QStringLiteral("desktopPetStopSoftware"));
+    connect(stop, &QAction::triggered, this, &FloatingPetWindow::stopSoftwareRequested);
+    return menu;
+}
+
 void FloatingPetWindow::contextMenuEvent(QContextMenuEvent* event)
 {
-    QMenu menu(this);
-    QAction* fishModeAction = menu.addAction(QStringLiteral("摸鱼模式"));
-    fishModeAction->setCheckable(true);
-    fishModeAction->setChecked(fishModeEnabled_);
-    connect(fishModeAction, &QAction::toggled, this, [this](bool enabled) {
-        fishModeEnabled_ = enabled;
-        emit fishModeToggled(enabled);
-    });
-    menu.addSeparator();
-    QAction* disableAction = menu.addAction(QStringLiteral("禁用桌宠"));
-    if (menu.exec(event->globalPos()) == disableAction) {
-        hideByUser();
-    }
+    std::unique_ptr<QMenu> menu(buildContextMenu());
+    menu->exec(event->globalPos());
 }

@@ -8,7 +8,7 @@ QWidget {
     font-family: "Microsoft YaHei UI", "Segoe UI Variable", sans-serif;
     font-size: 13px;
 }
-QMainWindow, QWidget#managerRoot { background: #0C151D; }
+QMainWindow, QWidget#managerRoot, QWidget#advancedLogicPage { background: #0C151D; }
 QLabel#brand {
     color: #7FC9EA;
     font-size: 12px;
@@ -24,6 +24,43 @@ QLabel#sectionTitle, QLabel#softwareOptionsTitle, QLabel#presetSectionTitle {
 QLabel#muted, QLabel#count, QLabel#source { color: #8FA5B2; }
 QLabel#redPixelPercentage { color: #FF8D8D; }
 QLabel#whitePixelPercentage { color: #E8F0F5; }
+QLabel#bluePixelPercentage { color: #82B5FF; }
+QDialog#statisticsColorsDialog, QDialog#colorRuleDialog,
+QDialog#whitelistSequenceDialog { background: #0C151D; }
+QWidget#pixelColorEditor QComboBox, QWidget#pixelColorEditor QSpinBox,
+QDialog#colorRuleDialog QComboBox, QDialog#colorRuleDialog QSpinBox {
+    background: #0F1B24;
+    color: #E8F0F5;
+    border: 1px solid #344B56;
+    border-radius: 4px;
+    padding: 4px 7px;
+}
+QWidget#advancedLogicPage QComboBox,
+QDialog#whitelistSequenceDialog QComboBox,
+QDialog#whitelistSequenceDialog QDoubleSpinBox {
+    background: #0F1B24;
+    color: #E8F0F5;
+    border: 1px solid #344B56;
+    border-radius: 4px;
+    padding: 4px 7px;
+}
+QWidget#advancedLogicPage QComboBox QAbstractItemView,
+QDialog#whitelistSequenceDialog QComboBox QAbstractItemView {
+    background: #0F1B24;
+    color: #E8F0F5;
+    selection-background-color: #1D5C76;
+}
+QWidget#pixelColorEditor QComboBox QLineEdit {
+    background: transparent;
+    border: 0;
+    padding: 0;
+}
+QWidget#pixelColorEditor QComboBox QAbstractItemView,
+QDialog#colorRuleDialog QComboBox QAbstractItemView {
+    background: #0F1B24;
+    color: #E8F0F5;
+    selection-background-color: #1D5C76;
+}
 QPushButton#createButton {
     background: #1782AD;
     color: white;
@@ -242,6 +279,7 @@ QLineEdit {
     selection-background-color: #1D6886;
 }
 QLineEdit:focus { border-color: #5AB6D9; }
+QLineEdit#whitelistSourceTitle { padding: 2px 7px; }
 QTableWidget {
     background: #0F1B24;
     alternate-background-color: #11212B;

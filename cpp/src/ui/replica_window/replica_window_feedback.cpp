@@ -36,25 +36,17 @@ void ReplicaWindow::initializeAudioFeedback()
         });
 }
 
-void ReplicaWindow::setFishModeEnabled(bool enabled)
+void ReplicaWindow::setDesktopPetMode(DesktopPetMode mode)
 {
-    if (fishModeEnabled_ == enabled) {
+    if (!isValidDesktopPetMode(mode) || desktopPetMode_ == mode) {
         return;
     }
-    fishModeEnabled_ = enabled;
-    audioFeedbackEnabled_ = !enabled;
-    if (enabled) {
-        gateway_.cancelAutomaticActivation(replicaId_);
-        setVisible(false);
-        if (activeAudioFeedbackId_ != 0) {
-            const quint64 feedbackId = activeAudioFeedbackId_;
-            const quint64 token = activeAudioRequestToken_;
-            activeAudioFeedbackId_ = 0;
-            activeAudioRequestToken_ = 0;
-            audioFeedbackManager_.cancel(replicaId_, token);
-            applyColorLogicEffects(colorLogicEngine_.feedbackCompleted(feedbackId));
-        }
-    }
+    desktopPetMode_ = mode;
+    audioFeedbackEnabled_ = mode == DesktopPetMode::Resident;
+    cancelAdvancedLogic();
+    gateway_.cancelAutomaticActivation(replicaId_);
+    applyColorLogicEffects(colorLogicEngine_.resetPendingFeedback());
+    if (mode != DesktopPetMode::Resident) { setVisible(false); }
 }
 
 void ReplicaWindow::applyColorLogicEffects(const QList<ColorLogicEffect>& effects)
@@ -66,7 +58,7 @@ void ReplicaWindow::applyColorLogicEffects(const QList<ColorLogicEffect>& effect
         case ColorLogicEffectKind::Triggered: {
             handleColorLogicTrigger(effect);
             if (effect.feedback == TriggerFeedback::Popup) {
-                if (isVisible() || fishModeEnabled_ || presentationSuppressed_) {
+                if (isVisible() || desktopPetMode_ != DesktopPetMode::Resident || presentationSuppressed_) {
                     auto followUp = colorLogicEngine_.feedbackCompleted(effect.feedbackId);
                     followUp.append(std::move(pending));
                     pending = std::move(followUp);
@@ -119,4 +111,5 @@ void ReplicaWindow::applyColorLogicEffects(const QList<ColorLogicEffect>& effect
             break;
         }
     }
+    drainAdvancedLogic();
 }

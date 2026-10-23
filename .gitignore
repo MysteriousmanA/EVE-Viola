@@ -3,3 +3,18 @@ build/
 dist-cpp/
 *.pdb
 *.ilk
+
+# Runtime data and local credentials must never be published.
+cache/
+logs/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Local network helper scripts.
+/GitHub-Proxy-Shell.ps1
+/Open-GitHub-Proxy-PowerShell.cmd

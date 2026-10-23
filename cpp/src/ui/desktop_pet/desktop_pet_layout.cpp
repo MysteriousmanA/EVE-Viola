@@ -54,7 +54,7 @@ std::pair<QLabel*, QLabel*> DesktopPetPage::buildLayout()
     auto* title = new QLabel(QStringLiteral("摸鱼桌宠"), content);
     title->setObjectName(QStringLiteral("sectionTitle"));
     auto* description = makeMutedText(
-        QStringLiteral("上传图片并裁成圆形头像放在桌面上。启用后桌宠会在程序下次启动时自动显示；左键拖动头像时轮盘会一起移动，再次单击头像可关闭轮盘。右键菜单可开启摸鱼模式，隐藏小窗与分区线、暂停图色音频和自动切换。"),
+        QStringLiteral("上传图片并裁成圆形头像放在桌面上。启用后下次启动时自动显示；左键拖动头像时轮盘一起移动，单击头像开关轮盘。右键菜单可选择常驻、摸鱼、勿扰三种互斥模式，也可禁用桌宠或停止软件。"),
         content);
     pageLayout->addWidget(title);
     pageLayout->addWidget(description);
@@ -143,9 +143,11 @@ std::pair<QLabel*, QLabel*> DesktopPetPage::buildLayout()
     surfaceLayout->addWidget(settings, 2);
     pageLayout->addWidget(surface);
 
+    buildNotificationSettings(pageLayout, content);
+
     pageLayout->addWidget(makeSectionTitle(QStringLiteral("图色逻辑触发文案"), content));
     pageLayout->addWidget(makeMutedText(
-        QStringLiteral("为每条规则填写最多 120 字的桌宠提示；触发账号名会显示在文案前，气泡位于头像下方。多个账号连续触发时会一并显示。留空则不显示文案；桌宠隐藏时会临时出现，提示结束后自动收起。"),
+        QStringLiteral("为每条规则填写最多 120 字的提示，触发账号名会显示在文案前。按上方开关显示桌宠气泡或通过 AstrBot 推送；留空则均不提示。桌宠隐藏时会临时出现，提示结束后自动收起；AstrBot 推送无需上传头像。"),
         content));
     rulesEmptyState_ = makeMutedText(
         QStringLiteral("还没有图色逻辑规则，请先在“图色逻辑”页新增规则。"), content);
@@ -154,7 +156,7 @@ std::pair<QLabel*, QLabel*> DesktopPetPage::buildLayout()
     rulesTable_ = new QTableWidget(0, 2, content);
     rulesTable_->setObjectName(QStringLiteral("desktopPetRuleMessages"));
     rulesTable_->setHorizontalHeaderLabels({
-        QStringLiteral("图色逻辑规则"), QStringLiteral("触发时显示文案")});
+        QStringLiteral("图色逻辑规则"), QStringLiteral("触发提示文案")});
     rulesTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     rulesTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     rulesTable_->verticalHeader()->hide();

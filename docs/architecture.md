@@ -7,7 +7,7 @@
 | `eve_viola_domain` | 配置值类型、图色状态机、像素分类、小窗身份与持久状态。依赖 Qt Core/Gui，不依赖 Widgets 或原生 DLL。 |
 | `eve_viola_cpp_core` | 激活策略、窗口目录、预设恢复、统计与截图调度、原生适配和诊断。依赖 domain 与原生 DLL。 |
 | `eve_viola_cpp_ui` | 窗口、页面、交互控制器、状态绑定和音频设备适配。依赖 core 与 Qt Widgets/Multimedia。 |
-| `eve_viola_native` | Win32/DWM/GDI 操作及原生帧的资源生命周期。保持现有 v3 API。 |
+| `eve_viola_native` | Win32/DWM/GDI 操作及原生帧的资源生命周期。公开 C API 版本为 v3。 |
 
 `MainWindow` 组装这些服务，负责标签导航、应用生命周期和跨页面呈现协调。区域截取会话由
 `RegionCaptureController` 管理，账号切屏与轮盘会话由 `AccountSwitchController`
@@ -57,18 +57,15 @@
 | `tray.cpp` | 托盘菜单、主窗口显示与激活 |
 | `shutdown.cpp` | 托盘关闭判断、强制退出、后台截图排空和析构清理 |
 
-这些文件实现同一个 `MainWindow` 类，继续共享服务与界面状态，不增加第二份
-配置或小窗所有权。提取的初始化函数保留原构造顺序和信号连接顺序。页面控件、
-业务控制器及公共服务仍位于各自既有模块；这里保留应用层接线与协调。
-
-主窗口拆分后 Release 构建与全量 21 个 CTest 目标通过。展开提取的辅助函数后，
-55 个原有方法与拆分前的内容一致；主文件由 1669 行减至 60 行。
+这些文件实现同一个 `MainWindow` 类，共享服务与界面状态。配置或小窗所有权
+由对应服务持有。页面控件、业务控制器及公共服务位于各自模块；主窗口负责
+应用层接线与协调。调整初始化流程时需保持服务依赖和信号连接顺序。
 
 ## 页面归属与界面/业务分离
 
-每个标签页拥有独立的界面实现。`ui/pages` 按页面组织新增模块；已经独立的
-分区、远征计时和桌宠页面继续使用原文件路径。`configuration_pages.h` 仅保留
-兼容包含，不再承载类定义或实现。
+每个标签页拥有独立的界面实现。首页、小窗列表、区域预设、图色逻辑和快捷切屏
+位于 `ui/pages`；分区、远征计时和桌宠页面位于 `ui/`。
+`configuration_pages.h` 是兼容包含入口，不承载类定义或实现。
 
 | 标签页 | 界面与交互协调 | 业务与数据 |
 | --- | --- | --- |
@@ -88,10 +85,14 @@
 Windows 快捷键运行时模块编入 `eve_viola_cpp_core`，与编入 domain 的按键文本
 工具及账号排序工具区分；运行时依赖 Win32、原生网关与 Qt Core，不依赖 Widgets。
 
-像素统计算法独立放在 `cpp/src/features/replica/pixel_statistics_calculator.cpp`，包括红白像素判定、
+像素统计算法独立放在 `cpp/src/features/replica/pixel_statistics_calculator.cpp`，包括红白蓝预设判定、任意 RGB 色值及容差匹配、
 区域裁剪、图像格式适配和像素计数。`pixel_statistics_calculator.h` 定义输入/输出接口
 与 `PixelStatistics` 结果类型。后续修改颜色阈值、分类规则或扫描算法优先修改该文件。
-`pixel_statistics.cpp` 只保留界面使用的颜色名称，原 `pixel_statistics.h` 保留兼容包含。
+`pixel_statistics.cpp` 提供预设颜色名称、颜色目标规范化与计数查询，`pixel_statistics.h` 兼容包含计算器接口。
+`PixelColorTarget` 用颜色名称或 `#RRGGBB` 与容差标识一个统计目标；默认目标为红、白、蓝。
+小窗的显示目标保存在 `ReplicaConfig::statisticsColors`，规则条件单独保存颜色和容差。
+统计注册合并显示目标与两槽位规则所需目标，同源批次再合并目标集合，仍然每个区域只扫描一次。
+修改颜色或容差会更新注册版本，丢弃旧任务的结果。`ui/pixel_color_editor.cpp` 为小窗颜色设置和规则编辑共享选色、色值输入与容差控件。
 `NativeGateway` 截图后调用计算器，`StatisticsCoordinator` 负责调度，图色状态机负责
 消费结果；计算器不依赖这三者或任何 QWidget。
 
@@ -104,11 +105,6 @@ Windows 快捷键运行时模块编入 `eve_viola_cpp_core`，与编入 domain �
 分区撤销只还原线条，不回退软件设置，最多保留 20 次线条改动。桌宠存储拒绝
 覆盖不可读或损坏的既有配置，保持原 JSON 格式与头像缓存文件名。
 
-页面分离后的 Release 构建通过，全量 20 个 CTest 目标通过。新增的
-`cpp_page_feature_services_test` 不启动界面，覆盖线条撤销边界、跨年和负偏移计时、
-同源统计合并、未知尺寸、桌宠损坏配置保护与头像往返。无临时诊断输出的应用
-启动退出路径另外连续通过 10 次复测；第一次全量测试中的启动异常在重建后未再复现。
-
 ## 小窗列表行实现归属
 
 `ui/replica_row.cpp` 保留 `ReplicaRow` 构造组装和身份访问。各功能的控件创建、
@@ -119,7 +115,7 @@ Windows 快捷键运行时模块编入 `eve_viola_cpp_core`，与编入 domain �
 | `replica_row_source.cpp` | 源窗口下拉框、来源名称显示、重名 HWND 区分与选中项保留 |
 | `replica_row_region.cpp` | 区域文本编辑、重截/保存按钮、预设选择与容差匹配 |
 | `replica_row_geometry.cpp` | 位置文本编辑、尺寸展示、缩放输入与焦点保护 |
-| `replica_row_statistics.cpp` | 红白像素数量展示、统计间隔控件与信号 |
+| `replica_row_statistics.cpp` | 可配置颜色的像素数量展示、选色与容差、统计间隔控件与信号 |
 | `replica_row_color_logic.cpp` | 图色规则/槽位、槽位互斥、启用状态和边框颜色选择 |
 | `replica_row_visibility.cpp` | 小窗/角色名显示开关及隐藏时槽位 2 控件约束 |
 | `replica_row_grouping.cpp` | 关闭/复制/折叠/同步动作、组代表呈现和性能估算文字 |
@@ -128,18 +124,14 @@ Windows 快捷键运行时模块编入 `eve_viola_cpp_core`，与编入 domain �
 | `scroll_passthrough_controls.h` | 下拉框/缩放框忽略滚轮，让事件交给列表滚动；来源弹出刷新回调 |
 | `replica_row_constants.h` | 来源单元格与折叠摘要的共享宽度 |
 
-所有实现继续使用同一个 `ReplicaRow` 的状态和接口。文本解析、来源匹配等仅供
+所有实现使用同一个 `ReplicaRow` 的状态和接口。文本解析、来源匹配等仅供
 单个功能使用的工具留在对应 `.cpp` 内；业务状态仍由 `ReplicaController` 与绑定层
-负责。组装顺序和信号连接顺序保持一致。
-
-列表行拆分后 Release 构建与全量 22 个 CTest 目标通过。展开提取的初始化函数后，
-40 个原有方法内容一致；原文件由 1139 行减至 27 行。已有主窗口测试覆盖来源
-重名与选择、区域文本和预设匹配、位置/缩放编辑、槽位互斥及同源分组折叠。
+负责。修改控件组装时需注意信号连接顺序。
 
 ## 桌宠实现归属
 
-`ui/desktop_pet_page.cpp` 保留页面组装、设置恢复调用和析构清理。功能实现位于
-`ui/desktop_pet/`，各控件具有单独的头文件，不再在页面 `.cpp` 内定义类：
+`ui/desktop_pet_page.cpp` 负责页面组装、设置恢复调用和析构清理。功能实现位于
+`ui/desktop_pet/`，各控件具有单独的头文件：
 
 | 文件 | 职责 |
 | --- | --- |
@@ -158,13 +150,8 @@ Windows 快捷键运行时模块编入 `eve_viola_cpp_core`，与编入 domain �
 | `desktop_pet_constants.h` | 头像输出尺寸、桌宠尺寸范围和气泡尺寸/时长常量 |
 
 `desktop_pet_settings.cpp` 调用已有 `DesktopPetSettingsStore`，实际 JSON 和图片
-读写仍由业务存储模块负责。配置字段、损坏文件保护、气泡尺寸算法以及多账号
-提示合并行为保留。Qt 元对象从独立控件头文件生成，不再依赖页面的内嵌 moc。
-
-桌宠拆分后 Release 构建与全量 22 个 CTest 目标通过。新增
-`cpp_desktop_pet_widgets_test` 覆盖圆形裁剪与偏移、滚轮累积和尺寸边界、气泡
-完整显示/自动收起、账号合并以及临时提示不改变禁用设置。展开提取的辅助函数
-后，12 个页面方法和 32 个控件方法的实现内容一致；原文件由 1209 行减至 32 行。
+读写由业务存储模块负责。界面模块负责头像裁剪、气泡尺寸计算以及多账号提示
+合并。Qt 元对象从独立控件头文件生成。
 
 ## 小窗状态
 
@@ -196,12 +183,9 @@ Win+D 会同时最小化源游戏，单纯重建缩略图无法让暂停渲染�
 不转移前台焦点。源窗口会离开最小化状态；已经正常显示的源窗口不改变层级。
 该步骤遵守上述小窗显示/冻结条件，失败时保留旧缩略图并在下一周期重试。
 
-信号连接与定时器初始化随对应功能迁移，构造顺序保持一致。以上文件是同一个
-Qt 窗口类的分功能实现，共享窗口状态；图色计算状态机、像素计算、统计调度和
-激活仲裁仍由既有独立服务负责。
-
-小窗拆分后 Release 构建与全量 21 个 CTest 目标通过。对照拆分前实现，展开
-提取的初始化、点击激活与图色触发辅助函数后，83 个原有函数内容一致。
+信号连接与定时器初始化位于对应功能文件。以上文件是同一个 Qt 窗口类的
+分功能实现，共享窗口状态；图色计算状态机、像素计算、统计调度和激活仲裁
+由独立服务负责。
 
 `ReplicaController` 统一拥有小窗身份、生命周期、顺序和持久配置，复用
 `ReplicaManager` 与 `ReplicaWorkspace`。`ReplicaBinding` 将用户操作与窗口事件
@@ -217,16 +201,27 @@ Qt 窗口类的分功能实现，共享窗口状态；图色计算状态机、�
 
 ## 临时运行模式
 
-`RuntimePolicy` 分别保存摸鱼和区域截取标志，并计算实际显示与自动激活权限。
+`RuntimePolicy` 保存桌宠互斥模式（常驻、摸鱼、勿扰）与独立的区域截取标志，并计算实际显示与自动激活权限。
 用户设置的可见性不因临时模式而改变。任一临时隐藏条件仍成立时，小窗不会
-恢复显示；新建小窗也遵循同一策略。摸鱼模式暂停音频，截取模式保留音频。
+恢复显示；新建小窗也遵循同一策略。摸鱼与勿扰模式暂停图色动作，截取模式保留音频。
+
+常驻模式执行原图色逻辑并允许桌宠文字，禁止 AstrBot 推送。摸鱼模式仅调用
+`ColorLogicEngine::observeNotification` 检测条件边沿，不执行音频、弹窗、闪烁、
+自动切屏、槽位跳转或高级逻辑序列，也不增加规则触发次数；通知单独通过
+`colorLogicNotificationRequested` 发给桌宠页。勿扰模式停止规则与提醒检测。
+切换模式取消待处理的高级逻辑效果与音频，不触发旧反馈的完成后操作。
+桌宠页同时约束本地气泡、自动推送与测试发送，离开摸鱼模式取消未完成请求。
+模式保存在 `desktopPet.json`，启动时在显示小窗与划线前恢复。
+
+桌宠菜单的“停止软件”转发到 `MainWindow::forceQuit`，复用保存配置、停止后台
+服务及等待截图完成的退出流程，不受保留到托盘设置影响。
 
 窗口状态只在开始临时隐藏时保存一次，最后一个隐藏条件解除后恢复。
 分区线和图色弹窗同样遵循这些临时抑制条件。
 
 ## 配置与保存
 
-原 `app_config.cpp` 已按职责拆分，`app_config.h` 仅保留兼容包含入口。新代码优先
+`app_config.h` 是兼容包含入口。新代码优先
 包含所需模块头文件，避免经兼容入口依赖所有配置工具。
 
 | 路径 | 职责 |
@@ -246,6 +241,8 @@ Qt 窗口类的分功能实现，共享窗口状态；图色计算状态机、�
 | `features/quick_switch/radial_account_order.*` | 根据实时窗口列表计算账号顺序 |
 | `features/color_rule/trigger_condition.*` | 图色条件文本解析、边界计算与条件判断 |
 | `features/color_rule/color_rule_config.*` | 图色规则增删改、反馈和后续动作名称映射 |
+| `features/advanced_logic/advanced_logic_engine.*` | 按账号/全局范围匹配有时限的事件序列，处理节点效果、优先级和事件消费 |
+| `config/serialization/advanced_logic_json.*` | 独立的 `advancedLogic.json` 配置转换 |
 | `features/region_preset/region_preset_config.*` | 区域预设增删改与重名验证 |
 
 序列化模块只转换值数据和 `QJsonObject`/`QJsonArray`，不读写文件；快捷键与
@@ -253,13 +250,22 @@ Qt 窗口类的分功能实现，共享窗口状态；图色计算状态机、�
 JSON 字段和迁移顺序。软件选项与快捷键仍写入 `replicas.json`，由对应序列化模块
 生成字段，再由小窗章节序列化器组合；预设文件继续只保存其名称、启用标志和小窗。
 
-配置拆分后 Release 构建与全量 21 个 CTest 目标通过。新增
-`cpp_config_modules_test` 直接使用各模块接口，覆盖章节组合、快捷键冲突与规范化、
-旧快捷键/图色字段迁移，以及区域预设和分区值的独立 JSON 往返。
-
 保存与界面刷新分离。位置、尺寸和全局选项保存不会重新下发规则，也不会取消
 正在等待的自动激活。区域预设和图色规则通过各自的变更路径更新受影响对象。
 重复设置相同规则或槽位是无副作用的操作。
+
+高级逻辑由 `ui/pages/advanced_logic/AdvancedLogicPage` 编辑白名单和图色规则优先级。
+`AdvancedLogicService` 属于运行时层，使用单调时钟和按最近截止时间唤醒的单次计时器；
+`AdvancedLogicEngine` 只接收事件、时间和配置，不依赖窗口、音频或计时器。默认按源 HWND
+关联多个小窗，也支持跨源匹配及节点的完整标题过滤。最先完成的序列消费事件，同时完成
+时由配置列表顺序决定；缺失规则使整条序列失效。编辑配置释放等待效果，关闭小窗、停止
+统计及更换监控目标则取消该小窗的等待与历史记录，退出程序时直接清空。
+
+`ColorLogicEngine` 可将触发延迟为独立事件，等待期间仍记录新的条件边沿。
+`ReplicaWindow` 只有收到执行决定才派发音频、弹窗、切屏、闪烁、桌宠信号和槽位后续动作；
+消除不执行后续动作，也不重置条件以制造循环重发。最高优先级在提交时立即执行，仍保留
+匹配记录，并用已决定标记防止重复执行；普通事件在匹配完成或超时后释放。一次释放多条
+事件时按图色优先级排序，同一小窗的音频/弹窗反馈沿用原有完成通知逐条推进。
 
 `JsonConfigStore` 在写入之前验证全部已有章节，拒绝覆盖损坏的 JSON。主配置
 加载失败时本次运行暂停保存；修复文件后需重启。桌宠配置采用同样的加载失败
@@ -279,54 +285,51 @@ JSON 内容未变的章节不重写。变更章节继续使用 `QSaveFile` 原�
 | `key_mapping.cpp` | 键盘身份索引、键鼠方向映射、冲突优先级与映射版本检查 |
 | `capture.cpp` | 录入启动/取消、已按下键忽略、可捕获输入的消费和录入通知 |
 | `input_dispatch.cpp` | 通用按下/松开流程、重复键消费、普通切换请求与释放清理 |
-| `keyboard_input.cpp` | 键盘钩子事件解码、左右修饰键解析与合成输入过滤 |
+| `keyboard_input.cpp` | 键盘钩子事件解码、左右修饰键解析、全局键盘按下/释放跟踪与合成输入过滤 |
 | `radial_hold.cpp` | 轮盘长按会话、取消/前台校验、短按方向切换或原键回放 |
-| `mouse_input.cpp` | 鼠标按键解码、侧键切换和 EVE 鼠标按下/释放跟踪 |
-| `foreground.cpp` | EVE 进程识别、鼠标目标缓存和前台窗口判断 |
+| `mouse_input.cpp` | 鼠标按键解码、侧键切换和全局鼠标按下/释放跟踪 |
+| `foreground.cpp` | EVE 进程识别和前台窗口判断 |
 | `signal_dispatch.cpp` | 从钩子线程排队投递 Qt 信号，以 `QPointer` 检查服务生命周期 |
 | `hook_thread.cpp` | 钩子注册/注销、消息循环、启动握手和线程停止/回收 |
 
-运行时模块共享同一个私有 `Impl`，保留原子操作的内存序和钩子线程中每键状态。
+运行时模块共享同一个私有 `Impl`，通过原子操作与钩子线程中的每键状态同步输入。
 轮盘状态处理与录入处理返回可选结果：有结果时直接消费/传递当前事件；无结果时
 继续原有调度流程。短按回放仍携带专用合成标记，避免自己的回放再次触发钩子。
 非 Windows 的服务接口继续采用原有失败通知/空操作实现。
 
-快捷切换拆分后 Release 构建与全量 23 个 CTest 目标通过。新增
-`cpp_quick_switch_service_test` 在不安装全局钩子、不发送真实输入的情况下覆盖
-普通/扩展键映射、方向冲突优先级、映射更新期间的读取保护、一次性录入与松开
-清理、注入输入排除、轮盘取消会话和服务销毁后的排队信号。展开提取的录入与
-轮盘处理步骤后，32 个原有方法的实现内容一致；原文件由 886 行减至 14 行。
-
 ## 平台服务与线程
 
-原生 DLL 按功能拆分，`native/src/eve_viola_native.cpp` 只保留 API 版本入口。
+原生 DLL 按功能组织，`native/src/eve_viola_native.cpp` 提供 API 版本入口。
 
 | 文件（位于 `native/src`） | 职责 |
 | --- | --- |
 | `eve_window_identity.cpp` | 查询窗口进程路径，确认 EVE 客户端身份；枚举和激活共用。 |
 | `window_enumeration.cpp` | 任务窗口过滤、标题匹配、窗口枚举与排序、列表分配及释放。 |
-| `window_thumbnail.cpp` | DWM 缩略图注册、源尺寸查询、属性更新与注销。 |
+| `window_thumbnail.cpp` | DWM 缩略图注册、源尺寸查询、属性更新与注销，以及最小化源窗口的后台恢复。 |
 | `window_activation.cpp` | 输入线程临时连接、窗口还原、前台激活重试及失败闪烁。 |
 | `window_capture_pixels.cpp` | 兼容像素缓冲截图、分阶段性能记录、缓冲分配及释放。 |
 | `window_capture_frame.cpp` | DIB 帧截图、工作线程缓存、保留帧所有权及 GDI 资源释放。 |
 
 `native_platform.h` 统一 Windows 头文件设置，`native_status.h` 提供内部返回码，
-`capture_timer.h` 提供两条截图路径共用的计时工具。公开头文件及 v3 C ABI 不变；
-13 个原有导出函数的实现内容保持一致。原文件从 638 行减至 9 行，截图缓存仍按
-工作线程隔离，保留帧不会被后续截图覆盖。
+`capture_timer.h` 提供两条截图路径共用的计时工具。公开接口以
+`native/include/eve_viola_native.h` 为准；API 版本为 3。截图缓存按工作线程隔离，
+保留帧不会被后续截图覆盖。
 
-原生模块拆分后 Release 构建通过，现有截图测试覆盖客户区像素、兼容像素接口、
-保留帧、缩放、工作线程隔离和 GDI 资源生命周期。首次全量测试中主窗口测试
-无诊断输出地失败一次，单独重跑通过，随后全量 23 个 CTest 目标均通过。
+实时预览使用 DWM 缩略图。像素统计优先使用 `eve_viola_capture_frame`，通过
+`PrintWindow` 渲染完整窗口后返回客户区的 DIB 视图；失败时尝试从源窗口 DC
+执行 `BitBlt`。网关再按配置区域扫描像素，相同区域只扫描一次。区域限制目前
+只减少扫描量，不减少原生截图尺寸；当前没有区域截图导出或显式 SSE2 扫描实现。
 
-`ActivationCoordinator` 拥有冷却、鼠标静默期、待激活请求和触发仲裁。时钟与
-实际激活操作可注入。鼠标活动接口供钩子线程调用，其余策略操作在应用线程
+`ActivationCoordinator` 拥有冷却、鼠标与键盘共用的输入静默期、待激活请求和触发仲裁。时钟与
+实际激活操作可注入。键鼠输入活动接口供钩子线程调用，其余策略操作在应用线程
 执行。`NativeGateway` 保留转发接口以兼容现有调用，并专注原生 API 与资源。
+输入静默沿用 `automaticActivationMouseQuietPeriodMs` 配置，任一键鼠按键按住时
+持续抑制自动激活，全部松开后按最后一次释放重新计时；钩子退出时清理按住状态。
 
 `WindowCatalog` 共享短期窗口快照，并用一个五秒监控器服务游戏恢复和分区检测。
 显式源列表刷新与轮盘激活前校验使用新快照。枚举失败不解释为所有游戏退出。
 
-`StatisticsCoordinator` 继续使用两个捕获工作线程、同源互斥和版本检查。
+`StatisticsCoordinator` 使用两个捕获工作线程、同源互斥和版本检查。
 冻结画面也在后台执行，工作任务只持有原生函数表和值数据，不操作 QWidget。
 冻结请求有并发上限，取消后相同小窗的旧请求仍占据运行名额直到完成，避免
 快速取消和重试堆积任务；迟到结果按请求编号丢弃。隐藏小窗或编辑待冻结画面的
@@ -337,27 +340,28 @@ JSON 内容未变的章节不重写。变更章节继续使用 `QSaveFile` 原�
 保证资源安全。`PrintWindow` 没有在此实现中可安全强制取消的机制，所以不保证
 异常源窗口下的退出时间上限；等待期间正常关闭流程继续处理界面事件。
 
-性能记录增加 `scheduler.result_age`，表示派发到结果交付的单调时钟耗时。
-捕获后端、颜色阈值、统计间隔及同源合并规则未改变；进一步更换捕获后端应
-依据实际捕获、扫描、延迟和失败指标。
+性能记录中的 `scheduler.result_age` 表示派发到结果交付的单调时钟耗时。
+调整捕获后端或扫描算法时，应比较捕获、扫描、延迟和失败指标。
 
-## 验证
+## 验证与维护
 
-新增架构服务测试覆盖状态快照、隐藏约束、临时模式叠加、预设恢复、可注入时钟
-和目录缓存。补充配置损坏保护、无关章节不重写、保存不取消激活、桌宠配置保护、
-复制和隐藏几何编辑、后台冻结取消以及停止后排空测试。
+构建和 CTest 命令见 [README](../README.md#测试)。测试入口由
+`cpp/CMakeLists.txt` 与 `native/CMakeLists.txt` 定义；历史构建结果不代表当前
+工作区的验证状态。
 
-冻结界面的测试等待异步帧，并关闭该测试小窗的统计，以分别验证缓冲区释放和
-统计管线。主窗口测试改为经控制器验证隐藏约束；已有分组断言按同源全组行为
-验证，时间页用例通过再次点击当前时间页验证刷新。
+| 维护范围 | 主要测试入口 |
+| --- | --- |
+| 状态、临时模式、预设恢复与窗口目录 | `cpp_architecture_services_test`、`cpp_replica_manager_test`、`cpp_replica_workspace_test` |
+| 配置保护、迁移与分章节保存 | `cpp_app_config_test`、`cpp_config_modules_test`、`cpp_page_feature_services_test` |
+| 图色规则、像素计算与后台统计 | `cpp_color_logic_engine_test`、`cpp_pixel_statistics_test`、`cpp_statistics_coordinator_test` |
+| 原生接口、截图资源与 DWM 恢复 | `cpp_native_import_test`、`cpp_native_gateway_test`、`eve_viola_core_tests`、`eve_viola_capture_tests` |
+| 小窗、列表、页面与桌宠交互 | `cpp_replica_window_test`、`cpp_main_window_test`、`cpp_page_partition_page_test`、`cpp_expedition_timing_page_test`、`cpp_desktop_pet_widgets_test` |
+| 快捷输入、音频、性能记录与应用生命周期 | `cpp_quick_switch_service_test`、`cpp_audio_feedback_manager_test`、`cpp_performance_recorder_test`、`cpp_single_instance_test`、`cpp_app_smoke` |
 
-Windows Release 使用 CMake/CTest 验证。受限沙箱可能无法写入 Qt 创建的私有
-临时目录，测试应在具有正常临时目录权限的环境执行。真实多客户端 CPU、GPU
-和音频设备行为仍需桌面场景测量，自动化通过不代表这些性能指标已重新测量。
+真实多客户端 CPU、GPU 和音频设备行为需在桌面场景测量。性能采样入口为
+`scripts/profile_performance.ps1`；`-CompareLegacy` 比较旧像素复制接口与 DIB
+帧接口，两者都使用完整窗口捕获。
 
-2026-10-14：Release 构建与全量 19 个 CTest 目标通过。最后的隐藏冻结取消改动
-再次通过小窗、主窗口和应用启动三个受影响目标；`git diff --check` 通过。
-
-分发脚本保留已有配置和日志，使用 Windows 平台插件检查启动。已验证从测试
-进程的 PATH 移除 Qt SDK、清除插件路径变量后启动成功，也验证了打包前后的
-配置与日志文件保留。开发测试使用的 `offscreen` 插件不属于分发包。
+`scripts/deploy_qt.ps1` 保留分发目录中的配置和日志，并在清除 Qt SDK 路径
+变量后使用 Windows 平台插件检查启动。开发测试使用的 `offscreen` 插件不属于
+分发包。

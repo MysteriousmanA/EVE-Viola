@@ -89,9 +89,9 @@ struct QuickSwitchService::Impl {
 
     LRESULT handleMouseEvent(WPARAM message, LPARAM parameter);
 
-    bool isEveMouseTarget(POINT point);
+    void releaseTrackedMouseButtons() noexcept;
 
-    void releaseTrackedEveMouseButtons() noexcept;
+    void releaseTrackedKeyboardKeys() noexcept;
 
     static LRESULT CALLBACK keyboardHook(int code, WPARAM message, LPARAM parameter);
 
@@ -113,12 +113,13 @@ struct QuickSwitchService::Impl {
     std::atomic<int> radialSwitchKeyIndex{0x20 * 2};
     std::array<std::atomic<std::int8_t>, kKeyboardIdentityCount> keyboardDirections{};
     std::array<KeyState, kKeyboardIdentityCount> keyStates{};
+    std::array<bool, kKeyboardIdentityCount> keyboardPressedStates{};
     std::array<HWND, kKeyboardIdentityCount> radialForegrounds{};
     std::array<quint64, kKeyboardIdentityCount> radialSessionIds{};
     std::array<ULONGLONG, kKeyboardIdentityCount> radialStartedAt{};
     std::array<std::int8_t, kKeyboardIdentityCount> radialStartDirections{};
     std::array<KeyState, 2> quickSwitchButtonStates{};
-    std::array<bool, 5> eveMouseButtonStates{};
+    std::array<bool, 5> mouseButtonStates{};
     std::array<std::atomic<bool>, kKeyboardIdentityCount> captureIgnoreUntilUp{};
     std::atomic<bool> captureArmed{false};
     std::atomic<bool> radialCancelRequested{false};
@@ -132,9 +133,6 @@ struct QuickSwitchService::Impl {
     QString startError;
     HHOOK keyboardHookHandle{};
     HHOOK mouseHook{};
-    HWND cachedMouseTarget{};
-    DWORD cachedMouseTargetProcessId{};
-    bool cachedMouseTargetIsEve{};
 
     inline static std::atomic<Impl*> activeImpl{nullptr};
 };

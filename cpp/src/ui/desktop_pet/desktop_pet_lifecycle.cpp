@@ -6,6 +6,8 @@
 #include <QPushButton>
 #include <QScreen>
 #include <QSlider>
+#include <QTimer>
+#include "features/desktop_pet/astrbot_notifier.h"
 #include "ui/desktop_pet/avatar_crop_widget.h"
 #include "ui/desktop_pet/floating_pet_window.h"
 
@@ -19,11 +21,13 @@ void DesktopPetPage::connectFloatingPetSignals()
             [this](const QPoint& petCenter, int avatarSize) {
                 emit accountWheelRequested(petCenter, avatarSize);
             });
-    connect(petWindow_, &FloatingPetWindow::fishModeToggled,
-            this, [this](bool enabled) {
-                fishModeEnabled_ = enabled;
-                emit fishModeToggled(enabled);
-            });
+    connect(petWindow_, &FloatingPetWindow::modeChanged, this, &DesktopPetPage::setMode);
+    connect(petWindow_, &FloatingPetWindow::stopSoftwareRequested, this, [this] {
+        messagePersistTimer_->stop();
+        saveSettings();
+        astrBotNotifier_->cancelPending();
+        emit stopSoftwareRequested();
+    });
     connect(petWindow_, &FloatingPetWindow::avatarGeometryChanged,
             this, &DesktopPetPage::accountWheelGeometryChanged);
     connect(petWindow_, &FloatingPetWindow::hiddenByUser, this, [this] {
@@ -84,7 +88,7 @@ void DesktopPetPage::togglePet()
             setDefaultPetPosition();
         }
         petWindow_->show();
-        statusLabel_->setText(QStringLiteral("桌宠正在桌面上，左键拖动时轮盘一起移动；单击头像打开或关闭轮盘，右键可启用摸鱼模式或禁用桌宠。"));
+        statusLabel_->setText(QStringLiteral("桌宠正在桌面上；右键可切换常驻、摸鱼、勿扰模式，禁用桌宠或停止软件。"));
     }
     updatePetButton();
     saveSettings();

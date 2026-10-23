@@ -86,6 +86,7 @@ void ReplicaWindow::selectSourceFull(const WindowInfo& source)
 
 void ReplicaWindow::selectSourceImpl(const WindowInfo& source, bool preserveRegion)
 {
+    cancelAdvancedLogic();
     cancelRegionCapture();
     gateway_.cancelAutomaticActivation(replicaId_);
     statisticsCoordinator_.remove(replicaId_);
@@ -160,6 +161,7 @@ void ReplicaWindow::updateThumbnail()
             return;
         }
         const QString unavailableTitle = source_.has_value() ? source_->title : QString{};
+        cancelAdvancedLogic();
         thumbnail_.reset();
         source_.reset();
         sourceCheckTimer_->stop();

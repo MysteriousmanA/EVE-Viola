@@ -68,6 +68,39 @@ class StatisticsCoordinatorTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void mergesColorTargetsAndDiscardsResultsWhenOnlyToleranceChanges()
+    {
+        qint64 nowMs = 0;
+        ManualExecutor executor;
+        QList<PixelColorTarget> capturedTargets;
+        StatisticsCoordinator coordinator(
+            [&] { return nowMs; },
+            [&](std::uintptr_t, const QList<std::optional<QRect>>& regions,
+                const QList<PixelColorTarget>& targets) {
+                capturedTargets = targets;
+                QImage image(1, 1, QImage::Format_RGB32);
+                image.fill(QColor(QStringLiteral("#00ff00")));
+                return QList<std::optional<PixelStatistics>>(regions.size(),
+                    calculatePixelStatistics(image, std::nullopt, targets));
+            },
+            [&](std::function<void()> task) { executor.submit(std::move(task)); });
+        QSignalSpy ready(&coordinator, &StatisticsCoordinator::colorStatisticsReady);
+        coordinator.upsert(1, 11, std::nullopt, 1000, {{QStringLiteral("#00ff00"), 10}});
+        coordinator.upsert(2, 11, std::nullopt, 1000, {{QStringLiteral("#0000ff"), 20}});
+        coordinator.processDue();
+        coordinator.upsert(1, 11, std::nullopt, 1000, {{QStringLiteral("#00ff00"), 0}});
+        executor.runFirst();
+        QCOMPARE(ready.count(), 1);
+        QCOMPARE(ready.first()[0].toULongLong(), qulonglong{2});
+        QVERIFY(capturedTargets.contains({QStringLiteral("#00ff00"), 10}));
+        QVERIFY(capturedTargets.contains({QStringLiteral("#0000ff"), 20}));
+        coordinator.processDue();
+        executor.runFirst();
+        QCOMPARE(ready.count(), 3); // Updating registration rephases both replicas.
+        const auto result = qvariant_cast<PixelStatistics>(ready.last()[1]);
+        QCOMPARE(result.count({QStringLiteral("#00ff00"), 0}), qsizetype{1});
+    }
+
     void changingStatisticsRegistrationDoesNotCancelAnInteractiveFrame()
     {
         FrameGate gate;

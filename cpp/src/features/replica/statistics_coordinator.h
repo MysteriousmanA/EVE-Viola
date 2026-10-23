@@ -21,6 +21,8 @@ using StatisticsCapture = std::function<QList<std::optional<PixelStatistics>>(
     std::uintptr_t,
     const QList<std::optional<QRect>>&)>;
 using StatisticsExecutor = std::function<void(std::function<void()>)>;
+using ColorStatisticsCapture = std::function<QList<std::optional<PixelStatistics>>(
+    std::uintptr_t, const QList<std::optional<QRect>>&, const QList<PixelColorTarget>&)>;
 
 struct StatisticsDiagnostics {
     quint64 completedBatches{};
@@ -44,13 +46,17 @@ public:
     StatisticsCoordinator(
         StatisticsClock clock, StatisticsCapture capture, StatisticsExecutor executor,
         std::function<QImage(std::uintptr_t)> frameCapture, QObject* parent);
+    StatisticsCoordinator(
+        StatisticsClock clock, ColorStatisticsCapture capture, StatisticsExecutor executor,
+        QObject* parent = nullptr);
     ~StatisticsCoordinator() override;
 
     void upsert(
         ReplicaId id,
         std::uintptr_t hwnd,
         std::optional<QRect> region,
-        int intervalMs);
+        int intervalMs,
+        const QList<PixelColorTarget>& targets = defaultPixelColorTargets());
     void remove(ReplicaId id);
     void start();
     void stop();
@@ -63,6 +69,7 @@ public:
 
 signals:
     void statisticsReady(ReplicaId id, qint64 redCount, qint64 whiteCount);
+    void colorStatisticsReady(ReplicaId id, const PixelStatistics& statistics);
     void statisticsUnavailable(ReplicaId id);
     void frameReady(ReplicaId id, quint64 request, const QImage& frame);
     void frameUnavailable(ReplicaId id, quint64 request, const QString& error);
@@ -77,6 +84,7 @@ private:
         quint64 version{};
         qint64 nextDueMs{};
         bool inFlight{};
+        QList<PixelColorTarget> targets;
     };
 
     struct Snapshot {
@@ -98,7 +106,7 @@ private:
     void armTimer();
 
     StatisticsClock clock_;
-    StatisticsCapture capture_;
+    ColorStatisticsCapture capture_;
     StatisticsExecutor executor_;
     std::function<QImage(std::uintptr_t)> frameCapture_;
     QHash<ReplicaId, quint64> frameRequests_;

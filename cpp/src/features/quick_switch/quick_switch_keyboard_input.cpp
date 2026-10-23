@@ -1,5 +1,6 @@
 #include "features/quick_switch/quick_switch_service_impl.h"
 
+#include "platform/native_gateway.h"
 
 #ifdef Q_OS_WIN
 
@@ -34,6 +35,17 @@ LRESULT QuickSwitchService::Impl::handleKeyboardEvent(WPARAM message, LPARAM par
     const bool keyExtended = extended;
     const std::size_t index = static_cast<std::size_t>(
         virtualKey * 2 + (keyExtended ? 1 : 0));
+    // Track every key before shortcut/capture handling can consume the event.
+    // Auto-repeat must not add another held key to the shared input count.
+    bool& pressed = keyboardPressedStates[index];
+    if (keyDown && !pressed) {
+        pressed = true;
+        gateway.noteInputPressed();
+    } else if (keyUp && pressed) {
+        pressed = false;
+        gateway.noteInputReleased();
+    }
+
     KeyState& state = keyStates[index];
     const bool injected = (key->flags & LLKHF_INJECTED) != 0;
 
@@ -55,6 +67,16 @@ LRESULT QuickSwitchService::Impl::handleKeyboardEvent(WPARAM message, LPARAM par
         keyExtended,
         -1,
         !injected);
+}
+
+void QuickSwitchService::Impl::releaseTrackedKeyboardKeys() noexcept
+{
+    for (bool& pressed : keyboardPressedStates) {
+        if (pressed) {
+            pressed = false;
+            gateway.noteInputReleased();
+        }
+    }
 }
 
 #endif

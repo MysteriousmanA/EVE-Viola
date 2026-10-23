@@ -71,6 +71,7 @@ ReplicaWindow::ReplicaWindow(
 
 ReplicaWindow::~ReplicaWindow()
 {
+    cancelAdvancedLogic();
     statisticsCoordinator_.cancelFrame(replicaId_);
     gateway_.cancelAutomaticActivation(replicaId_);
     statisticsCoordinator_.remove(replicaId_);
@@ -89,6 +90,7 @@ QLabel* ReplicaWindow::emptyLabel() const noexcept
 
 void ReplicaWindow::closeEvent(QCloseEvent* event)
 {
+    cancelAdvancedLogic();
     frameCapturePending_ = false;
     statisticsCoordinator_.cancelFrame(replicaId_);
     sourceCheckTimer_->stop();

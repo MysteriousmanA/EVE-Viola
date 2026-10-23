@@ -1,6 +1,7 @@
 #include "ui/replica_window.h"
 
 #include <QTimer>
+#include <QJsonArray>
 #include "config/config_validation.h"
 #include "runtime/runtime_logger.h"
 
@@ -11,6 +12,17 @@ void ReplicaWindow::handleColorLogicTrigger(const ColorLogicEffect& effect)
     const QString smallWindowName = QStringLiteral("小窗 #%1").arg(replicaId_);
     const bool hasSourceWindow = source_.has_value() && source_->hwnd != 0;
     const bool activationRequested = automaticActivationEnabled_ && hasSourceWindow;
+    QJsonArray colorCounts;
+    for (const auto& target : defaultPixelColorTargets()) {
+        colorCounts.append(QJsonObject{{QStringLiteral("color"), target.color},
+            {QStringLiteral("tolerance"), target.tolerance},
+            {QStringLiteral("count"), static_cast<double>(lastStatistics_.count(target))}});
+    }
+    for (const auto& entry : lastStatistics_.colors) {
+        colorCounts.append(QJsonObject{{QStringLiteral("color"), entry.target.color},
+            {QStringLiteral("tolerance"), entry.target.tolerance},
+            {QStringLiteral("count"), static_cast<double>(entry.count)}});
+    }
     const QString triggerEventId = RuntimeLogger::writeEvent(
         QStringLiteral("color_logic_triggered"),
         QJsonObject{
@@ -21,6 +33,8 @@ void ReplicaWindow::handleColorLogicTrigger(const ColorLogicEffect& effect)
             {QStringLiteral("condition_satisfied"), true},
             {QStringLiteral("red_pixel_count"), static_cast<double>(lastRedCount_)},
             {QStringLiteral("white_pixel_count"), static_cast<double>(lastWhiteCount_)},
+            {QStringLiteral("blue_pixel_count"), static_cast<double>(lastStatistics_.blueCount)},
+            {QStringLiteral("color_pixel_counts"), colorCounts},
             {QStringLiteral("topmost_activation_requested"), activationRequested},
             {QStringLiteral("target_window_title"),
              source_.has_value() ? source_->title : QString{}},

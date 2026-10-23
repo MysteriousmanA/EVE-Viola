@@ -67,10 +67,14 @@ ReplicaWindow* MainWindow::createReplica(const QList<WindowInfo>& sourceOptions)
         });
 
     windows_.insert(id, createdWindow);
+    createdWindow->setDesktopPetMode(runtimePolicy_.desktopPetMode);
+    createdWindow->setPresentationSuppressed(
+        runtimePolicy_.presentationSuppressed() || runtimePolicy_.regionCapture);
+    createdWindow->setAdvancedLogicService(advancedLogicService_);
     createdWindow->setRegionPresets(config_.regionPresets);
     createdWindow->setColorRules(config_.colorRules);
     createdWindow->setAutomaticActivationEnabled(
-        config_.activateSourceOnColorLogicTrigger && !runtimePolicy_.fishMode);
+        runtimePolicy_.automaticActivation(config_.activateSourceOnColorLogicTrigger));
     createdWindow->setAutomaticActivationCooldownMs(
         config_.automaticActivationCooldownMs);
     createdWindow->setRaiseOnClickEnabled(config_.raiseReplicaOnClick);

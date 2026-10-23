@@ -97,7 +97,7 @@ void ReplicaWindow::setPresentationSuppressed(bool suppressed) { presentationSup
 
 void ReplicaWindow::setVisible(bool visible)
 {
-    visible = visible && !fishModeEnabled_ && !presentationSuppressed_;
+    visible = visible && desktopPetMode_ == DesktopPetMode::Resident && !presentationSuppressed_;
     if (!visible && frameCapturePending_) { cancelRegionCapture(); }
     QWidget::setVisible(visible);
     if (!visible) {

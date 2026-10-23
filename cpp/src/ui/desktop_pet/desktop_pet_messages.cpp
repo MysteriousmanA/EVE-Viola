@@ -1,11 +1,13 @@
 #include "ui/desktop_pet_page.h"
 
 #include <utility>
+#include <QCheckBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QRegularExpression>
 #include <QTableWidget>
 #include <QTimer>
+#include "features/desktop_pet/astrbot_notifier.h"
 #include "ui/desktop_pet/floating_pet_window.h"
 
 #include "ui/desktop_pet/desktop_pet_constants.h"
@@ -64,7 +66,7 @@ void DesktopPetPage::setColorRules(const QList<ColorRule>& rules)
         message->setObjectName(QStringLiteral("desktopPetRuleMessage_%1").arg(rule.number));
         message->setMaxLength(120);
         message->setPlaceholderText(QStringLiteral("例如：注意，条件已经满足"));
-        message->setToolTip(QStringLiteral("该规则触发时桌宠显示的文案，最多 120 字；留空时不弹出提示"));
+        message->setToolTip(QStringLiteral("该规则触发时显示和推送的文案，最多 120 字；留空时不提示也不推送"));
         rulesTable_->setCellWidget(row, 1, message);
         rulesTable_->setRowHeight(row, 46);
         connect(message, &QLineEdit::textChanged, this, [this, number = rule.number](const QString& text) {
@@ -86,10 +88,20 @@ void DesktopPetPage::setColorRules(const QList<ColorRule>& rules)
 void DesktopPetPage::showRuleMessage(int ruleNumber, const QString& sourceWindowTitle)
 {
     const QString message = ruleMessages_.value(ruleNumber);
-    if (message.trimmed().isEmpty() || sourceImage_.isNull()) {
+    if (message.trimmed().isEmpty() || mode_ == DesktopPetMode::DoNotDisturb) {
         return;
     }
     const QString accountName = accountNameFromWindowTitle(sourceWindowTitle);
+    const auto astrBot = astrBotSettings();
+    if (mode_ == DesktopPetMode::Fish && astrBot.enabled) {
+        const QString text = accountName.isEmpty()
+            ? message : QStringLiteral("%1：%2").arg(accountName, message);
+        astrBotNotifier_->sendMessage(astrBot, text,
+            QString::number(ruleNumber) + QChar(0x1f) + accountName);
+    }
+    if (!localMessagesEnabled_->isChecked() || sourceImage_.isNull()) {
+        return;
+    }
     if (!activeTriggerMessages_.contains(message)) {
         activeTriggerMessages_.append(message);
     }

@@ -12,6 +12,7 @@ QJsonObject colorRuleToJson(const ColorRule& rule)
         return QJsonObject{
             {QStringLiteral("pixel"), condition.pixel},
             {QStringLiteral("expression"), condition.expression},
+            {QStringLiteral("tolerance"), condition.tolerance},
         };
     };
     return {
@@ -22,6 +23,7 @@ QJsonObject colorRuleToJson(const ColorRule& rule)
         {QStringLiteral("triggerFeedbackType"), triggerFeedbackName(rule.triggerFeedback)},
         {QStringLiteral("triggerFeedbackAudio"), rule.triggerFeedbackAudio},
         {QStringLiteral("postTriggerAction"), postTriggerActionName(rule.postTriggerAction)},
+        {QStringLiteral("priority"), static_cast<int>(rule.priority)},
     };
 }
 
@@ -43,10 +45,13 @@ QList<ColorRule> parseColorRules(const QJsonArray& array, int* nextNumber)
             return ColorRuleCondition{
                 conditionObject.value(QStringLiteral("pixel")).toString(),
                 conditionObject.value(QStringLiteral("expression")).toString(),
+                qBound(-1, conditionObject.value(QStringLiteral("tolerance")).toInt(-1), 255),
             };
         };
         ColorRule rule;
         rule.number = object.value(QStringLiteral("number")).toInt();
+        rule.priority = static_cast<ColorRulePriority>(qBound(0,
+            object.value(QStringLiteral("priority")).toInt(), 2));
         rule.note = object.value(QStringLiteral("note")).toString();
         rule.triggerCondition1 = parseCondition(QStringLiteral("triggerCondition1"));
         rule.triggerCondition2 = parseCondition(QStringLiteral("triggerCondition2"));

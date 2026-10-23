@@ -46,6 +46,76 @@ class PixelStatisticsTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void customColorsRespectInclusiveRgbToleranceAndIndependentCounts()
+    {
+        QImage image(5, 1, QImage::Format_RGB32);
+        const QRgb pixels[]{qRgb(20, 120, 220), qRgb(30, 110, 230),
+                            qRgb(31, 120, 220), qRgb(0, 0, 0), qRgb(255, 255, 255)};
+        for (int x = 0; x < image.width(); ++x) { image.setPixel(x, 0, pixels[x]); }
+        const QList<PixelColorTarget> targets{{QStringLiteral("#1478dc"), 10},
+            {QStringLiteral("#1478dc"), 0}, {QStringLiteral("#000000"), 0},
+            {QStringLiteral("#ffffff"), 255}};
+        const auto result = calculatePixelStatistics(image, std::nullopt, targets);
+        QCOMPARE(result.count(targets[0]), qsizetype{2});
+        QCOMPARE(result.count(targets[1]), qsizetype{1});
+        QCOMPARE(result.count(targets[2]), qsizetype{1});
+        QCOMPARE(result.count(targets[3]), qsizetype{5});
+        QCOMPARE(result.count({QStringLiteral("#ffffff"), 0}), qsizetype{-1});
+        QCOMPARE(result.count({QStringLiteral("invalid"), 0}), qsizetype{-1});
+    }
+
+    void bluePresetUsesEveReferenceAndInclusiveRgbTolerance()
+    {
+        QImage image(13, 1, QImage::Format_RGB32);
+        const QRgb pixels[]{qRgb(48, 79, 91), qRgb(49, 80, 92),
+            qRgb(32, 63, 75), qRgb(64, 95, 107), // inclusive tolerance boundaries
+            qRgb(31, 79, 91), qRgb(65, 79, 91), qRgb(48, 62, 91),
+            qRgb(48, 96, 91), qRgb(48, 79, 74), qRgb(48, 79, 108),
+            qRgb(0, 0, 255), qRgb(80, 80, 80), qRgb(0, 0, 0)};
+        for (int x = 0; x < image.width(); ++x) { image.setPixel(x, 0, pixels[x]); }
+        const auto result = calculatePixelStatistics(image, std::nullopt,
+            {{QStringLiteral("蓝色"), 0}, {QStringLiteral("蓝色"), 16}});
+        QCOMPARE(pixelColorValue(QStringLiteral("蓝色")), QColor(48, 79, 91));
+        QCOMPARE(result.blueCount, qsizetype{4});
+        QCOMPARE(result.count({QStringLiteral("蓝色")}), qsizetype{4});
+        QCOMPARE(result.count({QStringLiteral("蓝色"), 16}), qsizetype{4});
+        QCOMPARE(result.count({QStringLiteral("蓝色"), 0}), qsizetype{1});
+    }
+
+    void eveBluePresetIncludesEveryShadeInTheReferenceSwatch()
+    {
+        QImage image(6, 1, QImage::Format_RGB32);
+        const QRgb pixels[]{qRgb(48, 79, 91), qRgb(49, 80, 92), qRgb(48, 78, 90),
+                            qRgb(47, 78, 90), qRgb(47, 77, 89), qRgb(48, 79, 90)};
+        for (int x = 0; x < image.width(); ++x) { image.setPixel(x, 0, pixels[x]); }
+        const auto owned = calculatePixelStatistics(image);
+        const auto borrowed = calculatePixelStatistics(image.constBits(), image.width(),
+            image.height(), image.bytesPerLine());
+        QCOMPARE(owned.blueCount, qsizetype{6});
+        QCOMPARE(borrowed.blueCount, owned.blueCount);
+    }
+
+    void customColorsWorkWithClippingConversionAndPaddedRows()
+    {
+        QImage image(3, 2, QImage::Format_RGB888);
+        image.fill(QColor(QStringLiteral("#12ab34")));
+        image.setPixelColor(1, 0, Qt::black);
+        const PixelColorTarget target{QStringLiteral("#12AB34"), 0};
+        const auto result = calculatePixelStatistics(image, QRect(-1, -1, 3, 3), {target});
+        QCOMPARE(result.pixelCount, qsizetype{4});
+        QCOMPARE(result.count(target), qsizetype{3});
+        const auto rgb32 = image.convertToFormat(QImage::Format_RGB32);
+        const auto borrowed = calculatePixelStatistics(rgb32.constBits(), rgb32.width(),
+            rgb32.height(), rgb32.bytesPerLine(), QRect(-1, -1, 3, 3), {target});
+        QCOMPARE(borrowed.count(target), result.count(target));
+        const QList<PixelColorTarget> invalid{{QStringLiteral("bad"), -99},
+            {QStringLiteral("#12AB34"), 999}, {QStringLiteral("#12ab34"), 255}};
+        const auto normalized = normalizedPixelColorTargets(invalid);
+        QCOMPARE(normalized.size(), 1);
+        QCOMPARE(normalized.first().color, QStringLiteral("#12ab34"));
+        QCOMPARE(normalized.first().tolerance, 255);
+    }
+
     void reportsRedPredicatePerformance()
     {
         QList<QRgb> pixels;
@@ -214,7 +284,7 @@ private slots:
     void exposesOnlyThePixelCategoriesTheReplicaCanReport()
     {
         const QStringList categories = pixelColorCategoryNames();
-        QCOMPARE(categories, QStringList({QStringLiteral("红色"), QStringLiteral("白色")}));
+        QCOMPARE(categories, QStringList({QStringLiteral("红色"), QStringLiteral("白色"), QStringLiteral("蓝色")}));
         QCOMPARE(pixelColorCategoryName(PixelColorCategory::Red), QStringLiteral("红色"));
         QCOMPARE(pixelColorCategoryName(PixelColorCategory::White), QStringLiteral("白色"));
     }

@@ -70,18 +70,23 @@ private slots:
         RuntimePolicy policy;
         QVERIFY(policy.replicaVisible(true));
         policy.regionCapture = true;
-        policy.fishMode = true;
+        policy.desktopPetMode = DesktopPetMode::Fish;
         policy.regionCapture = false;
         QVERIFY(!policy.replicaVisible(true));
         QVERIFY(!policy.audioEnabled());
         QVERIFY(!policy.automaticActivation(true));
-        policy.fishMode = false;
+        policy.desktopPetMode = DesktopPetMode::Resident;
         QVERIFY(policy.replicaVisible(true));
         QVERIFY(!policy.replicaVisible(false));
         QVERIFY(!policy.automaticActivation(false));
         policy.regionCapture = true;
         QVERIFY(!policy.automaticActivation(true));
         QVERIFY(policy.audioEnabled());
+        policy.desktopPetMode = DesktopPetMode::DoNotDisturb;
+        policy.regionCapture = false;
+        QVERIFY(!policy.replicaVisible(true));
+        QVERIFY(!policy.audioEnabled());
+        QVERIFY(!policy.automaticActivation(true));
     }
     void restoreDefersAmbiguousOrMissingSourcesWithoutLosingConfiguration()
     {
@@ -119,7 +124,7 @@ private slots:
         QVERIFY(!PresetService::load(config, 0));
         QVERIFY(!PresetService::save(config, 3, {}));
     }
-    void activationPolicyUsesInjectedClockAndMouseQuietPeriod()
+    void activationPolicyUsesInjectedClockAndInputQuietPeriod()
     {
         qint64 now = 1000;
         QList<std::uintptr_t> activated;
@@ -131,11 +136,12 @@ private slots:
         now = 2000;
         QVERIFY(coordinator.activateWindowWithCooldown(2, 1000));
         coordinator.setAutomaticActivationMouseQuietPeriodMs(500);
-        coordinator.noteEveMouseButtonPressed();
+        coordinator.noteInputPressed();
+        now += 1000;
         coordinator.queueAutomaticActivation(1, 3, 0);
         coordinator.flushAutomaticActivations();
         QCOMPARE(activated.size(), 2);
-        coordinator.noteEveMouseButtonReleased();
+        coordinator.noteInputReleased();
         now += 499;
         coordinator.queueAutomaticActivation(1, 3, 0);
         coordinator.flushAutomaticActivations();
@@ -144,6 +150,38 @@ private slots:
         coordinator.queueAutomaticActivation(1, 3, 0);
         coordinator.flushAutomaticActivations();
         QCOMPARE(activated.last(), std::uintptr_t{3});
+    }
+    void inputQuietPeriodRestartsAfterEachPressAndWaitsForAllInputs()
+    {
+        qint64 now = 1000;
+        int activations = 0;
+        ActivationCoordinator coordinator([&activations](std::uintptr_t hwnd) {
+            ++activations;
+            return hwnd;
+        }, [&now] { return now; });
+        coordinator.setAutomaticActivationMouseQuietPeriodMs(500);
+        const auto flushActivation = [&coordinator] {
+            coordinator.queueAutomaticActivation(1, 3, 0);
+            coordinator.flushAutomaticActivations();
+        };
+
+        coordinator.noteInputPressed();
+        coordinator.noteInputPressed();
+        coordinator.noteInputReleased();
+        now += 1000;
+        flushActivation();
+        QCOMPARE(activations, 0);
+
+        coordinator.noteInputReleased();
+        now += 499;
+        coordinator.noteInputPressed();
+        coordinator.noteInputReleased();
+        now += 499;
+        flushActivation();
+        QCOMPARE(activations, 0);
+        ++now;
+        flushActivation();
+        QCOMPARE(activations, 1);
     }
     void catalogSharesSnapshotsAndDoesNotTreatFailuresAsWindowExit()
     {

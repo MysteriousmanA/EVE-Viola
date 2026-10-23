@@ -57,14 +57,14 @@ LRESULT QuickSwitchService::Impl::handleMouseEvent(WPARAM message, LPARAM parame
     }
 
     if (buttonIndex >= 0) {
-        bool& eveButtonPressed = eveMouseButtonStates[
+        bool& buttonPressed = mouseButtonStates[
             static_cast<std::size_t>(buttonIndex)];
-        if (keyDown && !eveButtonPressed && isEveMouseTarget(mouse->pt)) {
-            eveButtonPressed = true;
-            gateway.noteEveMouseButtonPressed();
-        } else if (keyUp && eveButtonPressed) {
-            eveButtonPressed = false;
-            gateway.noteEveMouseButtonReleased();
+        if (keyDown && !buttonPressed) {
+            buttonPressed = true;
+            gateway.noteInputPressed();
+        } else if (keyUp && buttonPressed) {
+            buttonPressed = false;
+            gateway.noteInputReleased();
         }
     }
 
@@ -89,12 +89,12 @@ LRESULT QuickSwitchService::Impl::handleMouseEvent(WPARAM message, LPARAM parame
         (mouse->flags & LLMHF_INJECTED) == 0);
 }
 
-void QuickSwitchService::Impl::releaseTrackedEveMouseButtons() noexcept
+void QuickSwitchService::Impl::releaseTrackedMouseButtons() noexcept
 {
-    for (bool& pressed : eveMouseButtonStates) {
+    for (bool& pressed : mouseButtonStates) {
         if (pressed) {
             pressed = false;
-            gateway.noteEveMouseButtonReleased();
+            gateway.noteInputReleased();
         }
     }
 }
