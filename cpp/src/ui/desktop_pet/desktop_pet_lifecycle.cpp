@@ -17,10 +17,8 @@ void DesktopPetPage::connectFloatingPetSignals()
         sizeSlider_->setValue(size);
         saveSettings();
     });
-    connect(petWindow_, &FloatingPetWindow::leftClicked, this,
-            [this](const QPoint& petCenter, int avatarSize) {
-                emit accountWheelRequested(petCenter, avatarSize);
-            });
+    connect(petWindow_, &FloatingPetWindow::leftClicked,
+            petWindow_, &FloatingPetWindow::toggleTriggerHistory);
     connect(petWindow_, &FloatingPetWindow::modeChanged, this, &DesktopPetPage::setMode);
     connect(petWindow_, &FloatingPetWindow::stopSoftwareRequested, this, [this] {
         messagePersistTimer_->stop();
@@ -28,11 +26,8 @@ void DesktopPetPage::connectFloatingPetSignals()
         astrBotNotifier_->cancelPending();
         emit stopSoftwareRequested();
     });
-    connect(petWindow_, &FloatingPetWindow::avatarGeometryChanged,
-            this, &DesktopPetPage::accountWheelGeometryChanged);
     connect(petWindow_, &FloatingPetWindow::hiddenByUser, this, [this] {
         petEnabled_ = false;
-        emit accountWheelDismissRequested();
         activeTriggerMessages_.clear();
         activeTriggerAccounts_.clear();
         statusLabel_->setText(QStringLiteral("桌宠已禁用。"));
@@ -44,7 +39,6 @@ void DesktopPetPage::connectFloatingPetSignals()
         activeTriggerAccounts_.clear();
     });
     connect(petWindow_, &FloatingPetWindow::autoHiddenByMessage, this, [this] {
-        emit accountWheelDismissRequested();
         statusLabel_->setText(QStringLiteral("桌宠提示已结束。"));
         updatePetButton();
         saveSettings();

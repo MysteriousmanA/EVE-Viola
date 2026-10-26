@@ -54,7 +54,7 @@ std::pair<QLabel*, QLabel*> DesktopPetPage::buildLayout()
     auto* title = new QLabel(QStringLiteral("摸鱼桌宠"), content);
     title->setObjectName(QStringLiteral("sectionTitle"));
     auto* description = makeMutedText(
-        QStringLiteral("上传图片并裁成圆形头像放在桌面上。启用后下次启动时自动显示；左键拖动头像时轮盘一起移动，单击头像开关轮盘。右键菜单可选择常驻、摸鱼、勿扰三种互斥模式，也可禁用桌宠或停止软件。"),
+        QStringLiteral("上传图片并裁成圆形头像放在桌面上。启用后下次启动时自动显示；左键拖动头像，单击头像查看图色逻辑触发记录。右键菜单可选择常驻、摸鱼、勿扰三种互斥模式，也可禁用桌宠或停止软件。"),
         content);
     pageLayout->addWidget(title);
     pageLayout->addWidget(description);
@@ -129,7 +129,7 @@ std::pair<QLabel*, QLabel*> DesktopPetPage::buildLayout()
     settingsLayout->addLayout(sizeRow);
 
     auto* interactionHint = makeMutedText(
-        QStringLiteral("桌宠会保持在其他窗口上方。账号昵称与扇区顺序沿用“快捷切屏”的“账号圆盘切换”设置。左键拖动头像时圆环会一起移动，滚轮调整大小；单击头像打开或关闭轮盘，点选圆环扇区切号，右键圆环也可关闭。"), settings);
+        QStringLiteral("桌宠会保持在其他窗口上方。左键拖动头像，滚轮调整大小；单击头像打开或收起历史记录气泡。保留本次运行最近 10 条图色逻辑触发记录，显示时分秒、账号、规则与文案，超出 10 条自动清除最早记录；记录较长时可在气泡内滚动查看。"), settings);
     settingsLayout->addWidget(interactionHint);
     statusLabel_ = makeMutedText(QStringLiteral("还没有头像，先选择一张图片。"), settings);
     statusLabel_->setObjectName(QStringLiteral("desktopPetStatus"));

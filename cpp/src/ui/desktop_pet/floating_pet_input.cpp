@@ -10,6 +10,8 @@
 #include <QMenu>
 #include <QMouseEvent>
 #include <QScreen>
+#include <QScrollBar>
+#include <QTextBrowser>
 #include <QWheelEvent>
 
 using namespace DesktopPetUi;
@@ -67,6 +69,20 @@ void FloatingPetWindow::mouseReleaseEvent(QMouseEvent* event)
 
 void FloatingPetWindow::wheelEvent(QWheelEvent* event)
 {
+    if (historyVisible_) {
+        auto* scrollBar = historyBubble_->verticalScrollBar();
+        int distance = event->pixelDelta().y();
+        if (distance == 0) {
+            historyWheelRemainder_ += event->angleDelta().y()
+                * scrollBar->singleStep() * QApplication::wheelScrollLines();
+            distance = historyWheelRemainder_ / 120;
+            historyWheelRemainder_ %= 120;
+        }
+        scrollBar->setValue(scrollBar->value() - distance);
+        // Consume the event even at a scroll boundary so it never resizes the avatar.
+        event->accept();
+        return;
+    }
     const int delta = event->angleDelta().y();
     if (delta == 0) {
         event->ignore();

@@ -4,6 +4,7 @@
 #include <QGuiApplication>
 #include <QLabel>
 #include <QScreen>
+#include <QTextBrowser>
 #include <QTimer>
 
 using namespace DesktopPetUi;
@@ -22,6 +23,16 @@ void FloatingPetWindow::initializeMessageBubble()
         "color: #F4F8FA; background: #142B36; border: 1px solid #62C4E8;"
         "border-radius: 10px; padding: 8px 12px; font-size: 13px; }"));
     bubble_->hide();
+    historyBubble_ = new QTextBrowser(this);
+    historyBubble_->setObjectName(QStringLiteral("desktopPetHistoryBubble"));
+    historyBubble_->setFocusPolicy(Qt::NoFocus);
+    historyBubble_->setOpenLinks(false);
+    historyBubble_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    historyBubble_->setStyleSheet(QStringLiteral(
+        "QTextBrowser#desktopPetHistoryBubble {"
+        "color: #F4F8FA; background: #142B36; border: 1px solid #62C4E8;"
+        "border-radius: 10px; padding: 8px 12px; font-size: 13px; }"));
+    historyBubble_->hide();
     messageTimer_ = new QTimer(this);
     messageTimer_->setSingleShot(true);
     connect(messageTimer_, &QTimer::timeout, this, &FloatingPetWindow::clearMessage);
@@ -29,9 +40,50 @@ void FloatingPetWindow::initializeMessageBubble()
 
 void FloatingPetWindow::showMessage(const QString& message)
 {
-    if (message.trimmed().isEmpty() || mode_ == DesktopPetMode::DoNotDisturb) {
+    if (message.trimmed().isEmpty() || mode_ == DesktopPetMode::DoNotDisturb
+        || historyVisible_) {
         return;
     }
+    showBubbleText(message);
+    messageTimer_->start(kMessageDisplayDurationMs);
+}
+
+void FloatingPetWindow::appendTriggerRecord(const QString& record)
+{
+    triggerHistory_.prepend(record);
+    while (triggerHistory_.size() > 10) {
+        triggerHistory_.removeLast();
+    }
+    if (historyVisible_) {
+        refreshTriggerHistory();
+    }
+}
+
+void FloatingPetWindow::toggleTriggerHistory()
+{
+    if (historyVisible_) {
+        clearMessage();
+        return;
+    }
+    historyVisible_ = true;
+    wheelDeltaRemainder_ = 0;
+    historyWheelRemainder_ = 0;
+    messageTimer_->stop();
+    refreshTriggerHistory();
+}
+
+void FloatingPetWindow::refreshTriggerHistory()
+{
+    const QString text = triggerHistory_.isEmpty()
+        ? QStringLiteral("图色逻辑触发记录\n暂无触发记录")
+        : QStringLiteral("图色逻辑触发记录（最近 %1 条）\n\n%2")
+              .arg(triggerHistory_.size()).arg(triggerHistory_.join(QStringLiteral("\n\n")));
+    historyBubble_->setPlainText(text);
+    showBubbleText(text);
+}
+
+void FloatingPetWindow::showBubbleText(const QString& message)
+{
     if (!isVisible()) {
         autoHideAfterMessage_ = true;
     }
@@ -85,12 +137,12 @@ void FloatingPetWindow::showMessage(const QString& message)
     // Changing the bubble width must not move the centered avatar on screen.
     move(avatarCenter - QPoint(width() / 2, avatarSize_ / 2));
     keepWindowOnScreen();
-    bubble_->show();
+    bubble_->setVisible(!historyVisible_);
+    historyBubble_->setVisible(historyVisible_);
     if (!isVisible()) {
         show();
     }
     raise();
-    messageTimer_->start(kMessageDisplayDurationMs);
 }
 
 void FloatingPetWindow::hideByUser()
@@ -119,7 +171,9 @@ void FloatingPetWindow::collapseMessageBubble()
 {
     bubbleRegionHeight_ = kBubbleRegionHeight;
     messageVisible_ = false;
+    historyVisible_ = false;
     bubble_->hide();
+    historyBubble_->hide();
     updateWindowRegion();
     emit positionChanged(pos());
 }

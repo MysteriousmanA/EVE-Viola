@@ -46,9 +46,6 @@ public slots:
     void setMode(DesktopPetMode mode);
 
 signals:
-    void accountWheelRequested(const QPoint& petCenter, int avatarSize);
-    void accountWheelGeometryChanged(const QPoint& petCenter, int avatarSize);
-    void accountWheelDismissRequested();
     void modeChanged(DesktopPetMode mode);
     void stopSoftwareRequested();
 

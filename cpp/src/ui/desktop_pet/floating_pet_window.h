@@ -2,6 +2,7 @@
 
 #include <QImage>
 #include <QPointF>
+#include <QStringList>
 #include <QWidget>
 
 #include "ui/desktop_pet/desktop_pet_constants.h"
@@ -13,6 +14,7 @@ class QMouseEvent;
 class QWheelEvent;
 class QContextMenuEvent;
 class QMenu;
+class QTextBrowser;
 
 class FloatingPetWindow final : public QWidget {
     Q_OBJECT
@@ -23,6 +25,8 @@ public:
     void setAvatar(const QImage& image, int size);
 
     void showMessage(const QString& message);
+    void appendTriggerRecord(const QString& record);
+    void toggleTriggerHistory();
 
     void hideByUser();
     void clearMessage();
@@ -56,6 +60,8 @@ protected:
 
 private:
     void initializeMessageBubble();
+    void showBubbleText(const QString& text);
+    void refreshTriggerHistory();
 
     DesktopPetMode mode_{DesktopPetMode::Resident};
     void keepWindowOnScreen();
@@ -70,6 +76,8 @@ private:
     QPoint dragOffset_;
     QPoint pressGlobalPosition_;
     QLabel* bubble_{};
+    QTextBrowser* historyBubble_{};
+    QStringList triggerHistory_;
     QTimer* messageTimer_{};
     int avatarSize_{128};
     int bubbleWidth_{244};
@@ -78,6 +86,8 @@ private:
     bool dragging_{false};
     bool dragged_{false};
     bool messageVisible_{false};
+    bool historyVisible_{false};
     bool autoHideAfterMessage_{false};
     int wheelDeltaRemainder_{0};
+    int historyWheelRemainder_{0};
 };

@@ -15,12 +15,16 @@
 #include <memory>
 #include <QPainter>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScreen>
+#include <QScrollBar>
 #include <QSpinBox>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QTextBrowser>
+#include <QTime>
 #include <QWheelEvent>
 
 #include "features/desktop_pet/desktop_pet_settings_store.h"
@@ -487,6 +491,57 @@ private slots:
         QCOMPARE(resized.last().first().toInt(), 72);
     }
 
+    void wheelOnlyScrollsWhileHistoryIsVisible()
+    {
+        FloatingPetWindow pet;
+        pet.show();
+        for (int i = 0; i < 10; ++i) {
+            pet.appendTriggerRecord(QStringLiteral("12:34:56  Alpha · 规则 #%1\n%2")
+                .arg(i).arg(QStringLiteral("历史记录详情\n").repeated(30)));
+        }
+        // A partial zoom gesture before opening history must not carry over after closing it.
+        sendWheel(pet, 60);
+        pet.toggleTriggerHistory();
+        auto* history = pet.findChild<QTextBrowser*>(QStringLiteral("desktopPetHistoryBubble"));
+        auto* scrollBar = history->verticalScrollBar();
+        QTRY_VERIFY(scrollBar->maximum() > 0);
+        const QSize size = pet.size();
+        QSignalSpy resized(&pet, &FloatingPetWindow::sizeChanged);
+        scrollBar->setValue(0);
+        sendWheel(pet, -120);
+        QVERIFY(scrollBar->value() > 0);
+        sendWheel(pet, 120);
+        QCOMPARE(scrollBar->value(), 0);
+
+        const auto wheelOverHistory = [history](int delta) {
+            QWidget* viewport = history->viewport();
+            const QPoint point = viewport->rect().center();
+            QWheelEvent event(QPointF(point), QPointF(viewport->mapToGlobal(point)),
+                             QPoint{}, QPoint(0, delta), Qt::NoButton, Qt::NoModifier,
+                             Qt::NoScrollPhase, false);
+            QApplication::sendEvent(viewport, &event);
+        };
+        wheelOverHistory(-120);
+        QVERIFY(scrollBar->value() > 0);
+        scrollBar->setValue(scrollBar->maximum());
+        wheelOverHistory(-120);
+        sendWheel(pet, -120);
+        QCOMPARE(scrollBar->value(), scrollBar->maximum());
+        scrollBar->setValue(0);
+        wheelOverHistory(120);
+        sendWheel(pet, 120);
+        QCOMPARE(scrollBar->value(), 0);
+        QCOMPARE(pet.size(), size);
+        QCOMPARE(resized.count(), 0);
+
+        pet.toggleTriggerHistory();
+        sendWheel(pet, 60);
+        QCOMPARE(resized.count(), 0);
+        sendWheel(pet, 60);
+        QCOMPARE(resized.count(), 1);
+        QCOMPARE(resized.first().first().toInt(), 140);
+    }
+
     void messagesPreserveAvatarCenter_data()
     {
         QTest::addColumn<bool>("enabled");
@@ -557,6 +612,102 @@ private slots:
         QCOMPARE(autoHidden.count(), 1);
     }
 
+    void clickShowsTenLatestRecordsInPetBubbleWithTimeOnly()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        DesktopPetSettingsStore store(directory.path());
+        QImage image(64, 64, QImage::Format_ARGB32_Premultiplied);
+        image.fill(Qt::green);
+        QVERIFY(store.saveSourceImage(image));
+        QVERIFY(store.save(QJsonObject{
+            {QStringLiteral("enabled"), true},
+            {QStringLiteral("localMessagesEnabled"), false},
+            {QStringLiteral("triggerMessages"), QJsonObject{
+                {QStringLiteral("1"), QStringLiteral("条件满足")}}}}));
+        DesktopPetPage page(directory.path());
+        ColorRule rule;
+        rule.number = 1;
+        rule.note = QStringLiteral("测试规则");
+        page.setColorRules({rule});
+        auto* pet = findPetWindow();
+        QVERIFY(pet);
+        auto* history = pet->findChild<QTextBrowser*>(QStringLiteral("desktopPetHistoryBubble"));
+        QVERIFY(history);
+        QVERIFY(!history->isWindow());
+        const auto windowCount = QApplication::topLevelWidgets().size();
+        const auto clickAvatar = [pet] {
+            QTest::mouseClick(pet, Qt::LeftButton, Qt::NoModifier,
+                              QPoint(pet->width() / 2, 64));
+        };
+        clickAvatar();
+        QVERIFY(history->isVisible());
+        QVERIFY(history->toPlainText().contains(QStringLiteral("暂无触发记录")));
+        QCOMPARE(QApplication::topLevelWidgets().size(), windowCount);
+        clickAvatar();
+        QVERIFY(!history->isVisible());
+
+        const QString before = QTime::currentTime().toString(QStringLiteral("HH:mm:ss"));
+        for (int i = 1; i <= 12; ++i) {
+            page.showRuleMessage(1, QStringLiteral("EVE - Alpha%1").arg(i));
+        }
+        const QString after = QTime::currentTime().toString(QStringLiteral("HH:mm:ss"));
+        clickAvatar();
+        QVERIFY(history->isVisible());
+        QString text = history->toPlainText();
+        QVERIFY(text.contains(QStringLiteral("最近 10 条")));
+        QCOMPARE(text.count(QStringLiteral("规则 #1  测试规则")), 10);
+        QVERIFY(!text.contains(QStringLiteral("Alpha1 ·")));
+        QVERIFY(!text.contains(QStringLiteral("Alpha2 ·")));
+        QVERIFY(text.indexOf(QStringLiteral("Alpha12 ·")) < text.indexOf(QStringLiteral("Alpha3 ·")));
+        QVERIFY(text.contains(before) || text.contains(after));
+        const QRegularExpression recordHeader(QStringLiteral("^\\d{2}:\\d{2}:\\d{2}  Alpha12 · 规则 #1  测试规则$"),
+                                             QRegularExpression::MultilineOption);
+        QVERIFY(recordHeader.match(text).hasMatch());
+        QVERIFY(pet->mask().contains(history->geometry().center()));
+        QVERIFY(!pet->findChild<QTimer*>()->isActive());
+
+        // Even a rule without a notification message is recorded, and an open history updates live.
+        page.showRuleMessage(2, QStringLiteral("EVE - Beta"));
+        text = history->toPlainText();
+        QCOMPARE(text.count(QStringLiteral("规则 #")), 10);
+        QVERIFY(text.indexOf(QStringLiteral("Beta · 规则 #2")) < text.indexOf(QStringLiteral("Alpha12 ·")));
+        QVERIFY(!text.contains(QStringLiteral("Alpha3 ·")));
+        clickAvatar();
+        QVERIFY(!history->isVisible());
+        QVERIFY(pet->isVisible());
+        clickAvatar();
+        QCOMPARE(history->toPlainText(), text);
+    }
+
+    void historyReplacesMessageAndSurvivesBubbleExpiry()
+    {
+        FloatingPetWindow pet;
+        pet.show();
+        pet.appendTriggerRecord(QStringLiteral("12:34:56  Alpha · 规则 #1\n提醒"));
+        pet.showMessage(QStringLiteral("临时提醒"));
+        auto* speech = pet.findChild<QLabel*>(QStringLiteral("desktopPetSpeechBubble"));
+        auto* history = pet.findChild<QTextBrowser*>(QStringLiteral("desktopPetHistoryBubble"));
+        auto* timer = pet.findChild<QTimer*>();
+        QVERIFY(speech->isVisible());
+        pet.toggleTriggerHistory();
+        QVERIFY(!speech->isVisible());
+        QVERIFY(history->isVisible());
+        QVERIFY(!timer->isActive());
+        pet.showMessage(QStringLiteral("新提醒"));
+        QVERIFY(history->isVisible());
+        QVERIFY(!speech->isVisible());
+        QVERIFY(!timer->isActive());
+        pet.toggleTriggerHistory();
+        pet.showMessage(QStringLiteral("新提醒"));
+        QVERIFY(speech->isVisible());
+        QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
+        pet.toggleTriggerHistory();
+        QVERIFY(history->toPlainText().contains(QStringLiteral("12:34:56  Alpha")));
+        pet.hideByUser();
+        QVERIFY(!history->isVisible());
+    }
+
     void ruleMessagesMergeAccountsAndKeepDisabledSetting()
     {
         QTemporaryDir directory;
@@ -586,12 +737,10 @@ private slots:
             auto* bubble = pet->findChild<QLabel*>(QStringLiteral("desktopPetSpeechBubble"));
             QVERIFY(bubble);
             QCOMPARE(bubble->text(), QStringLiteral("Alpha、Beta：条件已经满足"));
-            QSignalSpy dismissed(&page, &DesktopPetPage::accountWheelDismissRequested);
             auto* timer = pet->findChild<QTimer*>();
             QVERIFY(timer);
             timer->stop();
             QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
-            QCOMPARE(dismissed.count(), 1);
             QVERIFY(!pet->isVisible());
         }
         const auto saved = store.load();

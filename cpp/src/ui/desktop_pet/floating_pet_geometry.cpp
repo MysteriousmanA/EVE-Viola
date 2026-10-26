@@ -5,6 +5,7 @@
 #include <QLabel>
 #include <QRegion>
 #include <QScreen>
+#include <QTextBrowser>
 
 using namespace DesktopPetUi;
 
@@ -40,6 +41,7 @@ void FloatingPetWindow::updateWindowRegion()
             avatarSize_ + 8,
             bubbleWidth_,
             bubbleHeight_);
+        historyBubble_->setGeometry(bubble_->geometry());
     }
     const QRect imageRect = avatarRect();
     QRegion region(imageRect, QRegion::Ellipse);

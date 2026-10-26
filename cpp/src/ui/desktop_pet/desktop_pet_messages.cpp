@@ -6,6 +6,7 @@
 #include <QLineEdit>
 #include <QRegularExpression>
 #include <QTableWidget>
+#include <QTime>
 #include <QTimer>
 #include "features/desktop_pet/astrbot_notifier.h"
 #include "ui/desktop_pet/floating_pet_window.h"
@@ -88,10 +89,27 @@ void DesktopPetPage::setColorRules(const QList<ColorRule>& rules)
 void DesktopPetPage::showRuleMessage(int ruleNumber, const QString& sourceWindowTitle)
 {
     const QString message = ruleMessages_.value(ruleNumber);
-    if (message.trimmed().isEmpty() || mode_ == DesktopPetMode::DoNotDisturb) {
+    if (mode_ == DesktopPetMode::DoNotDisturb) {
         return;
     }
     const QString accountName = accountNameFromWindowTitle(sourceWindowTitle);
+    QString ruleName = QStringLiteral("规则 #%1").arg(ruleNumber);
+    for (const ColorRule& rule : colorRules_) {
+        if (rule.number == ruleNumber && !rule.note.trimmed().isEmpty()) {
+            ruleName += QStringLiteral("  %1").arg(rule.note.trimmed());
+            break;
+        }
+    }
+    QString record = QStringLiteral("%1  %2 · %3")
+        .arg(QTime::currentTime().toString(QStringLiteral("HH:mm:ss")),
+             accountName.isEmpty() ? QStringLiteral("未知账号") : accountName, ruleName);
+    if (!message.trimmed().isEmpty()) {
+        record += QLatin1Char('\n') + message;
+    }
+    petWindow_->appendTriggerRecord(record);
+    if (message.trimmed().isEmpty()) {
+        return;
+    }
     const auto astrBot = astrBotSettings();
     if (mode_ == DesktopPetMode::Fish && astrBot.enabled) {
         const QString text = accountName.isEmpty()
