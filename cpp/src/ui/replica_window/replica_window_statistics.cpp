@@ -4,26 +4,16 @@
 
 void ReplicaWindow::initializeStatistics()
 {
-    connect(
-        &statisticsCoordinator_,
-        &StatisticsCoordinator::colorStatisticsReady,
-        this,
-        [this](ReplicaId id, const PixelStatistics& statistics) {
-            if (id != replicaId_) {
+    statisticsCoordinator_.setResultHandler(replicaId_, this,
+        [this](const std::optional<PixelStatistics>& result) {
+            if (!result) {
+                emit pixelStatisticsUnavailable();
                 return;
             }
+            const auto& statistics = *result;
             emit pixelStatisticsChanged(statistics.redCount, statistics.whiteCount);
             emit colorStatisticsChanged(statistics);
             evaluateColorLogic(statistics);
-        });
-    connect(
-        &statisticsCoordinator_,
-        &StatisticsCoordinator::statisticsUnavailable,
-        this,
-        [this](ReplicaId id) {
-            if (id == replicaId_) {
-                emit pixelStatisticsUnavailable();
-            }
         });
 }
 

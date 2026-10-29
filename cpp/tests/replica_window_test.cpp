@@ -408,10 +408,10 @@ private slots:
         window.setColorRules({rule});
         window.setColorLogicSlot(1, 1);
         window.setColorLogicEnabled(true);
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         QSignalSpy statistics(&window, &ReplicaWindow::colorStatisticsChanged);
         window.selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
-        QTRY_COMPARE_WITH_TIMEOUT(window.colorLogicTriggerCount(1), 1, 1500);
+        QTRY_COMPARE_WITH_TIMEOUT(window.colorLogicTriggerCount(1), 1, 3500);
         QVERIFY(window.statisticsColors() == defaultPixelColorTargets());
         QVERIFY(!statistics.isEmpty());
         const auto result = qvariant_cast<PixelStatistics>(statistics.first()[0]);
@@ -1309,7 +1309,7 @@ private slots:
         state_.captureColors = {qRgb(255, 0, 0), qRgb(255, 0, 0)};
         ReplicaWindow window(70, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
         QSignalSpy flashChanged(&window, &ReplicaWindow::flashStateChanged);
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.setColorRules({
             {1, QStringLiteral("红态"), QStringLiteral("红色"), QStringLiteral(">=2"),
              TriggerFeedback::None, QString{}, PostTriggerAction::Loop},
@@ -1338,7 +1338,7 @@ private slots:
         state_.captureHeight = 1;
         state_.captureColors = {qRgb(255, 0, 0), qRgb(255, 0, 0)};
         ReplicaWindow window(73, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.setColorRules({
             {1, QStringLiteral("红态"), QStringLiteral("红色"), QStringLiteral(">=2"),
              TriggerFeedback::None, QString{}, PostTriggerAction::Loop},
@@ -1347,10 +1347,10 @@ private slots:
         window.setColorLogicEnabled(true);
         window.selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
 
-        QTRY_COMPARE_WITH_TIMEOUT(window.colorLogicTriggerCount(1), 1, 1500);
+        QTRY_COMPARE_WITH_TIMEOUT(window.colorLogicTriggerCount(1), 1, 3500);
 
         // Activation runs in a queued callback after the trigger is observed.
-        QTRY_COMPARE_WITH_TIMEOUT(state_.activateCount, 1, 1500);
+        QTRY_COMPARE_WITH_TIMEOUT(state_.activateCount, 1, 3500);
         QCOMPARE(state_.activatedHwnd, std::uintptr_t{123});
     }
 
@@ -1361,7 +1361,7 @@ private slots:
         state_.captureHeight = 1;
         state_.captureColors = {qRgb(255, 0, 0), qRgb(255, 0, 0)};
         ReplicaWindow window(74, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.setColorRules({
             {1, QStringLiteral("红态"), QStringLiteral("红色"), QStringLiteral(">=2"),
              TriggerFeedback::None, QString{}, PostTriggerAction::Loop},
@@ -1371,7 +1371,7 @@ private slots:
         window.setAutomaticActivationEnabled(false);
         window.selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
 
-        QTRY_COMPARE_WITH_TIMEOUT(window.colorLogicTriggerCount(1), 1, 1500);
+        QTRY_COMPARE_WITH_TIMEOUT(window.colorLogicTriggerCount(1), 1, 3500);
         QVERIFY(!window.automaticActivationEnabled());
         QCOMPARE(state_.activateCount, 0);
     }
@@ -1391,7 +1391,7 @@ private slots:
             QStringLiteral("红色"), QStringLiteral(">=2")};
         rule.triggerCondition2 = {
             QStringLiteral("白色"), QStringLiteral(">=1")};
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.setColorRules({rule});
         window.setColorLogicSlot(1, 1);
         window.setColorLogicEnabled(true);
@@ -1402,7 +1402,7 @@ private slots:
 
         state_.captureColors = {
             qRgb(255, 0, 0), qRgb(255, 0, 0), qRgb(255, 255, 255)};
-        QTRY_COMPARE_WITH_TIMEOUT(window.colorLogicTriggerCount(1), 1, 1500);
+        QTRY_COMPARE_WITH_TIMEOUT(window.colorLogicTriggerCount(1), 1, 3500);
     }
 
     void colorLogicIgnoresOneEmptyConditionAndRejectsTwoEmptyConditions()
@@ -1418,14 +1418,14 @@ private slots:
             QStringLiteral("红色"), QStringLiteral(">=2")};
         ColorRule noConditions;
         noConditions.number = 2;
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.setColorRules({oneCondition, noConditions});
         window.setColorLogicSlot(1, 1);
         window.setColorLogicSlot(2, 2);
         window.setColorLogicEnabled(true);
         window.selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
 
-        QTRY_COMPARE_WITH_TIMEOUT(window.colorLogicTriggerCount(1), 1, 1500);
+        QTRY_COMPARE_WITH_TIMEOUT(window.colorLogicTriggerCount(1), 1, 3500);
         window.setActiveColorLogicSlot(2);
         QTest::qWait(700);
         QCOMPARE(window.colorLogicTriggerCount(2), 0);
@@ -1446,12 +1446,12 @@ private slots:
         QSignalSpy statistics(&window, &ReplicaWindow::pixelStatisticsChanged);
         QSignalSpy unavailable(&window, &ReplicaWindow::pixelStatisticsUnavailable);
 
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.show();
         window.hide();
         window.selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
 
-        QTRY_COMPARE_WITH_TIMEOUT(statistics.count(), 1, 1500);
+        QTRY_COMPARE_WITH_TIMEOUT(statistics.count(), 1, 3500);
         QCOMPARE(unavailable.count(), 1);
         QCOMPARE(state_.lastCapturedHwnd, std::uintptr_t{123});
         QCOMPARE(statistics.first()[0].toLongLong(), 2);
@@ -1468,9 +1468,9 @@ private slots:
         QSignalSpy statistics(&window, &ReplicaWindow::pixelStatisticsChanged);
         QSignalSpy unavailable(&window, &ReplicaWindow::pixelStatisticsUnavailable);
 
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
-        QTRY_COMPARE_WITH_TIMEOUT(statistics.count(), 1, 1500);
+        QTRY_COMPARE_WITH_TIMEOUT(statistics.count(), 1, 3500);
         const int capturesBeforeDisable = state_.captureCount;
 
         window.setStatisticsInterval(0);
@@ -1479,8 +1479,8 @@ private slots:
         QCOMPARE(state_.captureCount, capturesBeforeDisable);
         QCOMPARE(statistics.count(), 1);
 
-        window.setStatisticsInterval(500);
-        QTRY_COMPARE_WITH_TIMEOUT(statistics.count(), 2, 1500);
+        window.setStatisticsInterval(1500);
+        QTRY_COMPARE_WITH_TIMEOUT(statistics.count(), 2, 3500);
         QVERIFY(state_.captureCount > capturesBeforeDisable);
     }
 
@@ -1494,7 +1494,7 @@ private slots:
         };
         ReplicaWindow window(9, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
         QSignalSpy slotChanged(&window, &ReplicaWindow::activeColorLogicSlotChanged);
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.setColorRules({
             {1, QStringLiteral("红色告警"), QStringLiteral("红色"), QStringLiteral(">=3"),
              TriggerFeedback::None, QString{}, PostTriggerAction::Jump},
@@ -1507,7 +1507,7 @@ private slots:
         window.setActiveColorLogicSlot(1);
         window.selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
 
-        QTRY_COMPARE_WITH_TIMEOUT(slotChanged.count(), 1, 1500);
+        QTRY_COMPARE_WITH_TIMEOUT(slotChanged.count(), 1, 3500);
         QCOMPARE(slotChanged.first().first().toInt(), 2);
         QCOMPARE(window.activeColorLogicSlot(), 2);
     }
@@ -1520,7 +1520,7 @@ private slots:
         state_.captureColors = {qRgb(255, 0, 0), qRgb(255, 0, 0)};
         ReplicaWindow window(11, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
         QSignalSpy slotChanged(&window, &ReplicaWindow::activeColorLogicSlotChanged);
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.setColorRules({
             {1, QStringLiteral("红态"), QStringLiteral("红色"), QStringLiteral(">=2"),
              TriggerFeedback::None, QString{}, PostTriggerAction::Jump},
@@ -1533,19 +1533,19 @@ private slots:
         window.setActiveColorLogicSlot(1);
         window.selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
 
-        QTRY_COMPARE_WITH_TIMEOUT(slotChanged.count(), 1, 1500);
+        QTRY_COMPARE_WITH_TIMEOUT(slotChanged.count(), 1, 3500);
         QCOMPARE(slotChanged.last().first().toInt(), 2);
         QTest::qWait(700);
         QCOMPARE(slotChanged.count(), 1);
 
         state_.captureColors = {qRgb(255, 255, 255), qRgb(255, 255, 255)};
-        QTRY_COMPARE_WITH_TIMEOUT(slotChanged.count(), 2, 1500);
+        QTRY_COMPARE_WITH_TIMEOUT(slotChanged.count(), 2, 3500);
         QCOMPARE(slotChanged.last().first().toInt(), 1);
         QTest::qWait(700);
         QCOMPARE(slotChanged.count(), 2);
 
         state_.captureColors = {qRgb(255, 0, 0), qRgb(255, 0, 0)};
-        QTRY_COMPARE_WITH_TIMEOUT(slotChanged.count(), 3, 1500);
+        QTRY_COMPARE_WITH_TIMEOUT(slotChanged.count(), 3, 3500);
         QCOMPARE(slotChanged.last().first().toInt(), 2);
     }
 
@@ -1557,7 +1557,7 @@ private slots:
         state_.captureColors = {qRgb(255, 0, 0), qRgb(255, 0, 0)};
         ReplicaWindow window(10, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
         QSignalSpy slotChanged(&window, &ReplicaWindow::activeColorLogicSlotChanged);
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.setColorRules({
             {1, QStringLiteral("音频"), QStringLiteral("红色"), QStringLiteral(">=2"),
              TriggerFeedback::Audio, QString{}, PostTriggerAction::Jump},
@@ -1570,7 +1570,7 @@ private slots:
         window.setActiveColorLogicSlot(1);
         window.selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
 
-        QTRY_COMPARE_WITH_TIMEOUT(slotChanged.count(), 1, 1500);
+        QTRY_COMPARE_WITH_TIMEOUT(slotChanged.count(), 1, 3500);
         QCOMPARE(slotChanged.first().first().toInt(), 2);
     }
 
@@ -1582,7 +1582,7 @@ private slots:
         state_.captureColors = {qRgb(255, 0, 0), qRgb(255, 0, 0)};
         ReplicaWindow window(10, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
         QSignalSpy slotChanged(&window, &ReplicaWindow::activeColorLogicSlotChanged);
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.setColorRules({
             {1, QStringLiteral("音频"), QStringLiteral("红色"), QStringLiteral(">=2"),
              TriggerFeedback::Audio,
@@ -1687,7 +1687,7 @@ private slots:
         state_.captureHeight = 1;
         state_.captureColors = {qRgb(255, 0, 0), qRgb(255, 0, 0)};
         ReplicaWindow window(20, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.setColorRules({
             {1, QStringLiteral("循环"), QStringLiteral("红色"), QStringLiteral(">=2"),
              TriggerFeedback::None, QString{}, PostTriggerAction::Loop},
@@ -1697,7 +1697,7 @@ private slots:
         window.setActiveColorLogicSlot(1);
         window.selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
 
-        QTRY_VERIFY_WITH_TIMEOUT(window.colorLogicTriggerCount(1) >= 3, 2500);
+        QTRY_VERIFY_WITH_TIMEOUT(window.colorLogicTriggerCount(1) >= 3, 5000);
     }
 
     void colorLogicReverseWaitRepeatsOnlyAfterConditionDrops()
@@ -1707,7 +1707,7 @@ private slots:
         state_.captureHeight = 1;
         state_.captureColors = {qRgb(255, 0, 0), qRgb(255, 0, 0)};
         ReplicaWindow window(21, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.setColorRules({
             {1, QStringLiteral("等待"), QStringLiteral("红色"), QStringLiteral(">=2"),
              TriggerFeedback::None, QString{}, PostTriggerAction::ReverseWait},
@@ -1717,12 +1717,12 @@ private slots:
         window.setActiveColorLogicSlot(1);
         window.selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
 
-        QTRY_COMPARE_WITH_TIMEOUT(window.colorLogicTriggerCount(1), 1, 1500);
-        QTest::qWait(1200);
+        QTRY_COMPARE_WITH_TIMEOUT(window.colorLogicTriggerCount(1), 1, 3500);
+        QTest::qWait(2000);
         QCOMPARE(window.colorLogicTriggerCount(1), 1);
 
         state_.captureColors = {qRgb(0, 0, 0), qRgb(0, 0, 0)};
-        QTest::qWait(1200);
+        QTest::qWait(2000);
         QCOMPARE(window.colorLogicTriggerCount(1), 1);
 
         state_.captureColors = {qRgb(255, 0, 0), qRgb(255, 0, 0)};
@@ -1739,7 +1739,7 @@ private slots:
         };
         ReplicaWindow window(44, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
         QSignalSpy slotChanged(&window, &ReplicaWindow::activeColorLogicSlotChanged);
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.setColorRules({
             {1, QStringLiteral("跳转"), QStringLiteral("红色"), QStringLiteral(">=2"),
              TriggerFeedback::None, QString{}, PostTriggerAction::Jump},
@@ -1752,16 +1752,16 @@ private slots:
         window.setActiveColorLogicSlot(1);
         window.selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
 
-        QTRY_COMPARE_WITH_TIMEOUT(slotChanged.count(), 1, 1500);
+        QTRY_COMPARE_WITH_TIMEOUT(slotChanged.count(), 1, 3500);
         QCOMPARE(window.activeColorLogicSlot(), 2);
-        QTRY_COMPARE_WITH_TIMEOUT(window.colorLogicTriggerCount(2), 1, 1500);
-        QTest::qWait(1200);
+        QTRY_COMPARE_WITH_TIMEOUT(window.colorLogicTriggerCount(2), 1, 3500);
+        QTest::qWait(2000);
         QCOMPARE(window.colorLogicTriggerCount(2), 1);
 
         state_.captureColors = {
             qRgb(255, 0, 0), qRgb(255, 0, 0), qRgb(0, 0, 0), qRgb(0, 0, 0),
         };
-        QTest::qWait(1200);
+        QTest::qWait(2000);
         QCOMPARE(window.colorLogicTriggerCount(2), 1);
 
         state_.captureColors = {
@@ -1778,7 +1778,7 @@ private slots:
         state_.captureColors = {qRgb(255, 0, 0), qRgb(255, 0, 0)};
         ReplicaWindow window(45, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
         QSignalSpy slotChanged(&window, &ReplicaWindow::activeColorLogicSlotChanged);
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.setColorRules({
             {1, QStringLiteral("红色预警"), QStringLiteral("红色"), QStringLiteral(">0"),
              TriggerFeedback::None, QString{}, PostTriggerAction::Loop},
@@ -1791,7 +1791,7 @@ private slots:
         window.setActiveColorLogicSlot(1);
         window.selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
 
-        QTRY_VERIFY_WITH_TIMEOUT(window.colorLogicTriggerCount(1) >= 2, 2500);
+        QTRY_VERIFY_WITH_TIMEOUT(window.colorLogicTriggerCount(1) >= 2, 3500);
         QCOMPARE(window.activeColorLogicSlot(), 1);
     }
 
@@ -1802,7 +1802,7 @@ private slots:
         state_.captureHeight = 1;
         state_.captureColors = {qRgb(255, 0, 0), qRgb(255, 0, 0)};
         ReplicaWindow window(46, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.setColorRules({
             {1, QStringLiteral("等待"), QStringLiteral("红色"), QStringLiteral(">=2"),
              TriggerFeedback::None, QString{}, PostTriggerAction::ReverseWait},
@@ -1812,7 +1812,7 @@ private slots:
         window.setActiveColorLogicSlot(1);
         window.selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
 
-        QTRY_COMPARE_WITH_TIMEOUT(window.colorLogicTriggerCount(1), 1, 1500);
+        QTRY_COMPARE_WITH_TIMEOUT(window.colorLogicTriggerCount(1), 1, 3500);
         QTRY_VERIFY_WITH_TIMEOUT(window.isFlashActive(), 2500);
         QTRY_VERIFY_WITH_TIMEOUT(!window.isFlashActive(), 2500);
         QTest::qWait(1000);
@@ -1820,7 +1820,7 @@ private slots:
         QVERIFY(!window.isFlashActive());
 
         state_.captureColors = {qRgb(0, 0, 0), qRgb(0, 0, 0)};
-        QTest::qWait(1200);
+        QTest::qWait(2000);
         QCOMPARE(window.colorLogicTriggerCount(1), 1);
 
         state_.captureColors = {qRgb(255, 0, 0), qRgb(255, 0, 0)};
@@ -1834,7 +1834,7 @@ private slots:
         state_.captureHeight = 1;
         state_.captureColors = {qRgb(255, 0, 0), qRgb(255, 0, 0)};
         ReplicaWindow window(30, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.setColorRules({
             {1, QStringLiteral("弹窗"), QStringLiteral("红色"), QStringLiteral(">=2"),
              TriggerFeedback::Popup, QString{}, PostTriggerAction::Loop},
@@ -1860,7 +1860,7 @@ private slots:
         ReplicaWindow first(30, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
         ReplicaWindow second(31, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
         for (auto* window : {&first, &second}) {
-            window->setStatisticsInterval(500);
+            window->setStatisticsInterval(1500);
             window->setColorRules({
                 {1, QStringLiteral("告警"), QStringLiteral("红色"), QStringLiteral(">=2"),
                  TriggerFeedback::None, QString{}, PostTriggerAction::Loop},
@@ -1871,8 +1871,8 @@ private slots:
             window->selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
         }
 
-        QTRY_COMPARE_WITH_TIMEOUT(first.colorLogicTriggerCount(1), 1, 1500);
-        QTRY_COMPARE_WITH_TIMEOUT(second.colorLogicTriggerCount(1), 1, 1500);
+        QTRY_COMPARE_WITH_TIMEOUT(first.colorLogicTriggerCount(1), 1, 3500);
+        QTRY_COMPARE_WITH_TIMEOUT(second.colorLogicTriggerCount(1), 1, 3500);
         QCOMPARE(state_.activateCount, 0); // One statistics batch must be conflict-free.
     }
 
@@ -1883,7 +1883,7 @@ private slots:
         state_.captureHeight = 1;
         state_.captureColors = {qRgb(255, 0, 0), qRgb(255, 0, 0)};
         ReplicaWindow window(31, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
-        window.setStatisticsInterval(500);
+        window.setStatisticsInterval(1500);
         window.setColorRules({
             {1, QStringLiteral("弹窗"), QStringLiteral("红色"), QStringLiteral(">=2"),
              TriggerFeedback::Popup, QString{}, PostTriggerAction::Loop},

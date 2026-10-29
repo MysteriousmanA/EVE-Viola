@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include <QColor>
 #include <QFrame>
 #include <QPoint>
@@ -91,6 +93,7 @@ signals:
     void reorderRequested(ReplicaId sourceId, ReplicaId targetId, bool insertAfter);
 
 protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void dragEnterEvent(QDragEnterEvent* event) override;
@@ -104,6 +107,7 @@ private:
     void initializeGeometryEditor();
     void initializeRegionPresetControls();
     void initializeStatisticsControls();
+    void refreshStatisticsLabels();
     void initializeVisibilityControls();
     void initializeColorLogicControls();
     void buildContentLayout();
@@ -146,6 +150,8 @@ private:
     QWidget* pixelStatisticsHost_{};
     QPushButton* statisticsColorsButton_{};
     QList<QLabel*> pixelStatisticsLabels_;
+    std::optional<PixelStatistics> latestStatistics_;
+    QList<qsizetype> displayedStatisticsCounts_;
     QList<PixelColorTarget> statisticsColors_{defaultPixelColorTargets()};
     QComboBox* statisticsInterval_{};
     QComboBox* colorLogicSlotA_{};

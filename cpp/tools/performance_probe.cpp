@@ -33,6 +33,7 @@ struct Plan {
     std::uintptr_t hwnd;
     std::optional<QRect> region;
     int interval;
+    QList<PixelColorTarget> targets;
 };
 }
 
@@ -102,9 +103,10 @@ int main(int argc, char* argv[])
         StatisticsCoordinator coordinator(gateway);
         ReplicaId nextId = 1;
         QList<Plan> plans;
-        const auto addRegistration = [&](std::uintptr_t hwnd, std::optional<QRect> region, int interval) {
-            plans.append(Plan{nextId, hwnd, region, interval});
-            coordinator.upsert(nextId++, hwnd, region, interval);
+        const auto addRegistration = [&](std::uintptr_t hwnd, std::optional<QRect> region,
+                                         int interval, const QList<PixelColorTarget>& targets) {
+            plans.append(Plan{nextId, hwnd, region, interval, targets});
+            coordinator.upsert(nextId++, hwnd, region, interval, targets);
         };
         QJsonArray registrations;
         for (const auto& source : sources) {
@@ -119,7 +121,18 @@ int main(int argc, char* argv[])
                 }
                 const std::optional<QRect> region = replica.capturedRegion.isValid()
                     ? std::optional<QRect>(replica.capturedRegion) : std::nullopt;
-                addRegistration(source.hwnd, region, replica.statisticsIntervalMs);
+                auto targets = replica.statisticsColors;
+                for (const auto& rule : config.colorRules) {
+                    if (rule.number != replica.colorLogicSlotRule[0]
+                        && rule.number != replica.colorLogicSlotRule[1]) { continue; }
+                    for (const auto& condition : {rule.triggerCondition1, rule.triggerCondition2}) {
+                        if (!condition.isEmpty() && pixelColorValue(condition.pixel).isValid()) {
+                            const PixelColorTarget target{condition.pixel, condition.tolerance};
+                            if (!targets.contains(target)) { targets.append(target); }
+                        }
+                    }
+                }
+                addRegistration(source.hwnd, region, replica.statisticsIntervalMs, targets);
                 registrations.append(QJsonObject{
                     {QStringLiteral("source"), source.title},
                     {QStringLiteral("interval_ms"), replica.statisticsIntervalMs},
@@ -129,12 +142,13 @@ int main(int argc, char* argv[])
                     {QStringLiteral("height"), region.has_value() ? region->height() : 0},
                 });
             }
-            // Without config, measure one full-client scan per source per second.
+            // Without config, use the application's default statistics interval.
             if (!matched && !parser.isSet(QStringLiteral("config"))) {
-                addRegistration(source.hwnd, std::nullopt, 1000);
+                addRegistration(source.hwnd, std::nullopt, kDefaultStatisticsIntervalMs,
+                    defaultPixelColorTargets());
                 registrations.append(QJsonObject{
                     {QStringLiteral("source"), source.title},
-                    {QStringLiteral("interval_ms"), 1000},
+                    {QStringLiteral("interval_ms"), kDefaultStatisticsIntervalMs},
                     {QStringLiteral("full_client"), true},
                 });
             }
@@ -169,7 +183,7 @@ int main(int argc, char* argv[])
             cpuStart = processCpuNs();
             coordinator.start();
             for (const auto& plan : plans) {
-                coordinator.upsert(plan.id, plan.hwnd, plan.region, plan.interval);
+                coordinator.upsert(plan.id, plan.hwnd, plan.region, plan.interval, plan.targets);
             }
             QTimer::singleShot(duration, Qt::PreciseTimer, &loop, &QEventLoop::quit);
         });

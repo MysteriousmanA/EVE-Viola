@@ -100,6 +100,11 @@ private:
     std::uintptr_t handle_{};
 };
 
+struct PixelStatisticsRequest {
+    std::optional<QRect> region;
+    QList<PixelColorTarget> targets;
+};
+
 class NativeGateway final {
 public:
     explicit NativeGateway(NativeFunctions functions = NativeFunctions::linked());
@@ -135,6 +140,8 @@ public:
         std::uintptr_t hwnd,
         const QList<std::optional<QRect>>& regions,
         const QList<PixelColorTarget>& targets = {}) const;
+    [[nodiscard]] QList<std::optional<PixelStatistics>> captureWindowStatisticsRequests(
+        std::uintptr_t hwnd, const QList<PixelStatisticsRequest>& requests) const;
 
 private:
     NativeFunctions functions_;

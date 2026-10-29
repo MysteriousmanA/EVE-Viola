@@ -166,7 +166,7 @@ private slots:
         expected.presets[0].replicas.append({
             QStringLiteral("EVE - Alpha"),
             QRect{},
-            1000,
+            1500,
             {0, 0},
             false,
             1,
@@ -465,7 +465,7 @@ private slots:
         QVERIFY(config.colorRules.isEmpty());
     }
 
-    void legacyRegionPresetWithoutIntervalDefaultsToOneSecond()
+    void legacyRegionPresetWithoutIntervalDefaultsToOneAndAHalfSeconds()
     {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
@@ -483,7 +483,7 @@ private slots:
         QCOMPARE(config.regionPresets.first().statisticsIntervalMs, kDefaultStatisticsIntervalMs);
     }
 
-    void invalidRegionPresetIntervalFallsBackToOneSecond()
+    void invalidRegionPresetIntervalFallsBackToOneAndAHalfSeconds()
     {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());

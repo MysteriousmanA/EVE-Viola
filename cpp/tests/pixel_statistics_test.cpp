@@ -46,6 +46,70 @@ class PixelStatisticsTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void compiledPlanPreservesClippingStrideAndCanBeReused()
+    {
+        // Two visible pixels per row, with a third padding pixel that must not count.
+        const QRgb pixels[]{qRgb(255, 0, 0), qRgb(20, 120, 220), qRgb(20, 120, 220),
+                            qRgb(255, 255, 255), qRgb(30, 110, 230), qRgb(20, 120, 220)};
+        const PixelColorTarget target{QStringLiteral("#1478DC"), 10};
+        const auto plan = compilePixelStatisticsPlan({target, target, {QStringLiteral("invalid"), 0}});
+        QCOMPARE(plan.matchers.size(), 1);
+        for (int repeat = 0; repeat < 3; ++repeat) {
+            const auto result = calculatePlannedPixelStatistics(
+                reinterpret_cast<const uchar*>(pixels), 2, 2, 12, QRect(-1, -1, 5, 5), plan);
+            QCOMPARE(result.pixelCount, qsizetype{4});
+            QCOMPARE(result.redCount, qsizetype{1});
+            QCOMPARE(result.whiteCount, qsizetype{1});
+            QCOMPARE(result.count(target), qsizetype{2});
+        }
+    }
+
+    void reportsPerRegionPlanPerformanceWithEquivalentCounts()
+    {
+        QImage image(256, 128, QImage::Format_RGB32);
+        QRandomGenerator random(0x12345678u);
+        for (int y = 0; y < image.height(); ++y) {
+            auto* row = reinterpret_cast<QRgb*>(image.scanLine(y));
+            for (int x = 0; x < image.width(); ++x) { row[x] = 0xff000000u | (random.generate() & 0xffffffu); }
+        }
+        QList<PixelColorTarget> all;
+        QList<QList<PixelColorTarget>> perRegion;
+        QList<PixelStatisticsPlan> plans;
+        for (int region = 0; region < 6; ++region) {
+            QList<PixelColorTarget> targets;
+            for (int color = 0; color < 4; ++color) {
+                const PixelColorTarget target{QColor::fromRgb(random.generate() & 0xffffffu).name(), 16};
+                targets.append(target);
+                all.append(target);
+            }
+            perRegion.append(targets);
+            plans.append(compilePixelStatisticsPlan(targets));
+        }
+        quint64 unionCount = 0, plannedCount = 0;
+        QElapsedTimer timer;
+        timer.start();
+        for (int repeat = 0; repeat < 8; ++repeat) {
+            for (int region = 0; region < 6; ++region) {
+                const auto result = calculatePixelStatistics(image, std::nullopt, all);
+                for (const auto& target : perRegion[region]) { unionCount += result.count(target); }
+            }
+        }
+        const auto unionNs = timer.nsecsElapsed();
+        timer.restart();
+        for (int repeat = 0; repeat < 8; ++repeat) {
+            for (int region = 0; region < 6; ++region) {
+                const auto result = calculatePlannedPixelStatistics(image.constBits(), image.width(),
+                    image.height(), image.bytesPerLine(), std::nullopt, plans[region]);
+                for (const auto& target : perRegion[region]) { plannedCount += result.count(target); }
+            }
+        }
+        const auto plannedNs = timer.nsecsElapsed();
+        QCOMPARE(plannedCount, unionCount);
+        qInfo().noquote() << QStringLiteral("REGION_PLAN_UNION_NS=%1 PLANNED_NS=%2 SPEEDUP=%3x")
+            .arg(unionNs).arg(plannedNs)
+            .arg(static_cast<double>(unionNs) / std::max<qint64>(1, plannedNs), 0, 'f', 2);
+    }
+
     void customColorsRespectInclusiveRgbToleranceAndIndependentCounts()
     {
         QImage image(5, 1, QImage::Format_RGB32);

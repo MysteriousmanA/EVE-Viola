@@ -16,10 +16,10 @@
 #include "features/advanced_logic/advanced_logic_types.h"
 
 inline constexpr int kStatisticsIntervalDisabledMs = 0;
-inline constexpr int kStatisticsIntervalMinimumMs = 500;
+inline constexpr int kStatisticsIntervalMinimumMs = 1500;
 inline constexpr int kStatisticsIntervalMaximumMs = 10000;
 inline constexpr int kStatisticsIntervalStepMs = 500;
-inline constexpr int kDefaultStatisticsIntervalMs = 1000;
+inline constexpr int kDefaultStatisticsIntervalMs = 1500;
 
 inline constexpr int kAutomaticActivationCooldownMinimumMs = 1000;
 inline constexpr int kAutomaticActivationCooldownMaximumMs = 10000;

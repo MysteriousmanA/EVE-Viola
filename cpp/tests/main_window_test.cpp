@@ -30,6 +30,7 @@
 #include <QSignalSpy>
 #include <QTabBar>
 #include <QTabWidget>
+#include <QStackedWidget>
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -243,6 +244,7 @@ private slots:
     void replicaRowShowsThreePresetsAndCanDisplayCustomColorCounts()
     {
         ReplicaRow row(1);
+        row.show();
         QVERIFY(row.statisticsColors() == defaultPixelColorTargets());
         auto* blue = row.findChild<QLabel*>(QStringLiteral("bluePixelPercentage"));
         QVERIFY(blue);
@@ -483,22 +485,24 @@ private slots:
         QCOMPARE(visibilityChanged.first().first().toBool(), true);
     }
 
-    void replicaRowOffersZeroToTenSecondStatisticsIntervals()
+    void replicaRowOffersDisabledOrAtLeastOneAndAHalfSecondStatisticsIntervals()
     {
         ReplicaRow row(1);
         auto* interval = row.findChild<QComboBox*>(QStringLiteral("statisticsInterval"));
         QVERIFY(interval != nullptr);
-        QCOMPARE(interval->count(), 21);
+        QCOMPARE(interval->count(), 19);
         QCOMPARE(interval->itemText(0), QStringLiteral("不统计"));
         QCOMPARE(interval->itemData(0).toInt(), 0);
-        QCOMPARE(interval->itemText(1), QStringLiteral("0.5 s"));
-        QCOMPARE(interval->itemData(1).toInt(), 500);
-        QCOMPARE(interval->itemText(20), QStringLiteral("10.0 s"));
-        QCOMPARE(interval->itemData(20).toInt(), 10000);
-        QCOMPARE(interval->currentData().toInt(), 1000);
+        QCOMPARE(interval->itemText(1), QStringLiteral("1.5 s"));
+        QCOMPARE(interval->itemData(1).toInt(), 1500);
+        QCOMPARE(interval->findData(500), -1);
+        QCOMPARE(interval->findData(1000), -1);
+        QCOMPARE(interval->itemText(18), QStringLiteral("10.0 s"));
+        QCOMPARE(interval->itemData(18).toInt(), 10000);
+        QCOMPARE(interval->currentData().toInt(), 1500);
 
         QSignalSpy intervalChanged(&row, &ReplicaRow::statisticsIntervalChanged);
-        interval->setCurrentIndex(7);
+        interval->setCurrentIndex(interval->findData(3500));
 
         QCOMPARE(intervalChanged.count(), 1);
         QCOMPARE(intervalChanged.first().first().toInt(), 3500);
@@ -683,6 +687,7 @@ private slots:
     void replicaRowDisplaysPixelStatisticsAndUnavailableState()
     {
         ReplicaRow row(2);
+        row.show();
         auto* red = row.findChild<QLabel*>(QStringLiteral("redPixelPercentage"));
         auto* white = row.findChild<QLabel*>(QStringLiteral("whitePixelPercentage"));
         QVERIFY(red != nullptr);
@@ -697,6 +702,79 @@ private slots:
         row.clearPixelStatistics();
         QCOMPARE(red->text(), QStringLiteral("红色像素：--"));
         QCOMPARE(white->text(), QStringLiteral("白色像素：--"));
+    }
+
+    void hiddenStatisticsPageDefersLabelsAndShowsOnlyTheLatestResult()
+    {
+        QStackedWidget pages;
+        auto* row = new ReplicaRow(1);
+        pages.addWidget(row);
+        pages.addWidget(new QWidget);
+        pages.show();
+        auto* red = row->findChild<QLabel*>(QStringLiteral("redPixelPercentage"));
+        QVERIFY(red);
+        QVERIFY(red->isVisible());
+        row->setPixelStatistics(10, 5);
+        QCOMPARE(red->text(), QStringLiteral("红色像素：10"));
+
+        pages.setCurrentIndex(1);
+        QVERIFY(!red->isVisible());
+        for (int count = 11; count <= 40; ++count) { row->setPixelStatistics(count, 5); }
+        QCOMPARE(red->text(), QStringLiteral("红色像素：10"));
+        pages.setCurrentIndex(0);
+        QCOMPARE(red->text(), QStringLiteral("红色像素：40"));
+        row->setPixelStatistics(40, 5);
+        QCOMPARE(red->text(), QStringLiteral("红色像素：40"));
+
+        pages.setCurrentIndex(1);
+        row->setPixelStatistics(99, 5);
+        row->clearPixelStatistics();
+        QCOMPARE(red->text(), QStringLiteral("红色像素：40"));
+        pages.setCurrentIndex(0);
+        QCOMPARE(red->text(), QStringLiteral("红色像素：--"));
+    }
+
+    void collapsedStatisticsResumeWithLatestResultAndUnavailableState()
+    {
+        ReplicaRow row(1);
+        row.show();
+        auto* red = row.findChild<QLabel*>(QStringLiteral("redPixelPercentage"));
+        QVERIFY(red);
+        row.setPixelStatistics(1, 2);
+        row.setCollapsed(true);
+        QVERIFY(!red->isVisible());
+        row.setPixelStatistics(8, 9);
+        QCOMPARE(red->text(), QStringLiteral("红色像素：1"));
+        row.setCollapsed(false);
+        QCOMPARE(red->text(), QStringLiteral("红色像素：8"));
+        row.setCollapsed(true);
+        row.clearPixelStatistics();
+        row.setCollapsed(false);
+        QCOMPARE(red->text(), QStringLiteral("红色像素：--"));
+    }
+
+    void changingHiddenStatisticsColorsInvalidatesOldDisplayCache()
+    {
+        ReplicaRow row(1);
+        row.show();
+        row.setPixelStatistics(12, 3);
+        row.hide();
+        const PixelColorTarget target{QStringLiteral("#123456"), 0};
+        row.setStatisticsColors({target});
+        auto* custom = row.findChild<QLabel*>(QStringLiteral("customPixelCount0"));
+        QVERIFY(custom);
+        QImage image(2, 1, QImage::Format_RGB32);
+        image.fill(QColor(target.color));
+        row.setColorStatistics(calculatePixelStatistics(image, std::nullopt, {target}));
+        QCOMPARE(custom->text(), QStringLiteral("#123456像素：--"));
+        row.show();
+        QCOMPARE(custom->text(), QStringLiteral("#123456像素：2"));
+        row.hide();
+        row.clearPixelStatistics();
+        row.setStatisticsColors(defaultPixelColorTargets());
+        row.show();
+        QCOMPARE(row.findChild<QLabel*>(QStringLiteral("redPixelPercentage"))->text(),
+                 QStringLiteral("红色像素：--"));
     }
 
     void buttonCreatesIndependentReplicasAndRows()
@@ -950,7 +1028,11 @@ private slots:
         QCOMPARE(presets->item(0, 4)->text(), QStringLiteral("180"));
         auto* interval = qobject_cast<QComboBox*>(presets->cellWidget(0, 5));
         QVERIFY(interval != nullptr);
-        QCOMPARE(interval->currentData().toInt(), 1000);
+        QCOMPARE(interval->currentData().toInt(), 1500);
+        QCOMPARE(interval->itemData(0).toInt(), 0);
+        QCOMPARE(interval->itemData(1).toInt(), 1500);
+        QCOMPARE(interval->findData(500), -1);
+        QCOMPARE(interval->findData(1000), -1);
         auto* rowDelete = qobject_cast<QPushButton*>(presets->cellWidget(0, 6));
         QVERIFY(rowDelete != nullptr);
         QCOMPARE(rowDelete->text(), QStringLiteral("删除"));
@@ -1164,7 +1246,7 @@ private slots:
         QVERIFY(slotA != nullptr && enabled != nullptr && interval != nullptr);
         slotA->setCurrentIndex(slotA->findData(1));
         enabled->setChecked(true);
-        interval->setCurrentIndex(interval->findData(500));
+        interval->setCurrentIndex(interval->findData(1500));
         first->selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
         second->selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
 
@@ -1522,7 +1604,7 @@ private slots:
         QVERIFY(firstRow->colorLogicSlotColor(1) == QColor(255, 0, 0));
         QVERIFY(firstRow->colorLogicSlotColor(2) == QColor(0, 0, 255));
 
-        QCOMPARE(second->statisticsIntervalMs(), 500);
+        QCOMPARE(second->statisticsIntervalMs(), 1500);
         QVERIFY(!secondRow->visibilityChecked());
         QCOMPARE(second->pos(), QPoint(100, 100));
         QCOMPARE(second->size(), QSize(360, 240));
@@ -1684,7 +1766,7 @@ private slots:
         QVERIFY(slotA != nullptr && enabled != nullptr && interval != nullptr && visibility != nullptr);
         slotA->setCurrentIndex(slotA->findData(1));
         enabled->setChecked(true);
-        interval->setCurrentIndex(interval->findData(500));
+        interval->setCurrentIndex(interval->findData(1500));
         triggered->selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
         other->selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
         visibility->setChecked(false);
@@ -1749,7 +1831,7 @@ private slots:
         QVERIFY(slotA != nullptr && enabled != nullptr && interval != nullptr);
         slotA->setCurrentIndex(slotA->findData(1));
         enabled->setChecked(true);
-        interval->setCurrentIndex(interval->findData(500));
+        interval->setCurrentIndex(interval->findData(1500));
 
         QTRY_VERIFY_WITH_TIMEOUT(a1->isFlashActive(), 2000);
         QCOMPARE(a2->grab().toImage().pixelColor(1, 1), QColor(0, 0, 0));
@@ -1805,7 +1887,7 @@ private slots:
         QVERIFY(slotA != nullptr && enabled != nullptr && interval != nullptr);
         slotA->setCurrentIndex(slotA->findData(1));
         enabled->setChecked(true);
-        interval->setCurrentIndex(interval->findData(500));
+        interval->setCurrentIndex(interval->findData(1500));
 
         QTRY_VERIFY_WITH_TIMEOUT(first->isFlashActive(), 2000);
         QCOMPARE(second->grab().toImage().pixelColor(1, 1), QColor(0, 0, 0));

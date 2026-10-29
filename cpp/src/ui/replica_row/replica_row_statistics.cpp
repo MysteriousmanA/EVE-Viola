@@ -1,6 +1,7 @@
 #include "ui/replica_row.h"
 
 #include <QComboBox>
+#include <QEvent>
 #include <QLabel>
 #include <QGridLayout>
 #include <QPushButton>
@@ -14,6 +15,7 @@ using namespace ReplicaRowUi;
 void ReplicaRow::initializeStatisticsControls()
 {
     pixelStatisticsHost_ = new QWidget(this);
+    pixelStatisticsHost_->installEventFilter(this);
     new QGridLayout(pixelStatisticsHost_);
     statisticsColorsButton_ = new QPushButton(QStringLiteral("统计颜色…"), this);
     statisticsColorsButton_->setObjectName(QStringLiteral("statisticsColors"));
@@ -28,8 +30,12 @@ void ReplicaRow::initializeStatisticsControls()
 
     statisticsInterval_ = new ScrollPassthroughCombo;
     statisticsInterval_->setObjectName(QStringLiteral("statisticsInterval"));
-    statisticsInterval_->setToolTip(QStringLiteral("像素统计刷新间隔，0 表示不统计"));
-    for (int milliseconds = kStatisticsIntervalDisabledMs;
+    statisticsInterval_->setToolTip(QStringLiteral(
+        "像素统计刷新间隔，0 表示不统计。同一游戏窗口的统计截图完成后至少间隔 1.5 秒；"
+        "多个到期区域共用截图。"));
+    statisticsInterval_->addItem(statisticsIntervalLabel(kStatisticsIntervalDisabledMs),
+        kStatisticsIntervalDisabledMs);
+    for (int milliseconds = kStatisticsIntervalMinimumMs;
          milliseconds <= kStatisticsIntervalMaximumMs;
          milliseconds += kStatisticsIntervalStepMs) {
         statisticsInterval_->addItem(
@@ -53,15 +59,18 @@ void ReplicaRow::setPixelStatistics(qint64 redCount, qint64 whiteCount)
 
 void ReplicaRow::setStatisticsColors(const QList<PixelColorTarget>& colors)
 {
+    latestStatistics_.reset();
     statisticsColors_ = normalizedPixelColorTargets(colors);
     qDeleteAll(pixelStatisticsLabels_);
     pixelStatisticsLabels_.clear();
+    displayedStatisticsCounts_ = QList<qsizetype>(statisticsColors_.size(), -1);
     auto* layout = static_cast<QGridLayout*>(pixelStatisticsHost_->layout());
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setHorizontalSpacing(12);
     for (qsizetype index = 0; index < statisticsColors_.size(); ++index) {
         const auto& target = statisticsColors_[index];
         auto* label = new QLabel(pixelStatisticsHost_);
+        label->setText(target.color + QStringLiteral("像素：--"));
         if (target.color == QStringLiteral("红色")) { label->setObjectName(QStringLiteral("redPixelPercentage")); }
         else if (target.color == QStringLiteral("白色")) { label->setObjectName(QStringLiteral("whitePixelPercentage")); }
         else if (target.color == QStringLiteral("蓝色")) { label->setObjectName(QStringLiteral("bluePixelPercentage")); }
@@ -71,14 +80,24 @@ void ReplicaRow::setStatisticsColors(const QList<PixelColorTarget>& colors)
         layout->addWidget(label, static_cast<int>(index / 3), static_cast<int>(index % 3));
         pixelStatisticsLabels_.append(label);
     }
-    clearPixelStatistics();
 }
 
 void ReplicaRow::setColorStatistics(const PixelStatistics& statistics)
 {
+    latestStatistics_ = statistics;
+    refreshStatisticsLabels();
+}
+
+void ReplicaRow::refreshStatisticsLabels()
+{
+    // Hidden pages and collapsed cards retain only the latest result. Rule
+    // evaluation stays in ReplicaWindow and is independent of label rendering.
+    if (!pixelStatisticsHost_->isVisible()) { return; }
     for (qsizetype index = 0; index < statisticsColors_.size(); ++index) {
         const auto& target = statisticsColors_[index];
-        const auto count = statistics.count(target);
+        const auto count = latestStatistics_ ? latestStatistics_->count(target) : qsizetype{-1};
+        if (displayedStatisticsCounts_[index] == count) { continue; }
+        displayedStatisticsCounts_[index] = count;
         pixelStatisticsLabels_[index]->setText(target.color + QStringLiteral("像素：") +
                                                (count < 0 ? QStringLiteral("--") : QString::number(count)));
     }
@@ -86,9 +105,16 @@ void ReplicaRow::setColorStatistics(const PixelStatistics& statistics)
 
 void ReplicaRow::clearPixelStatistics()
 {
-    for (qsizetype index = 0; index < statisticsColors_.size(); ++index) {
-        pixelStatisticsLabels_[index]->setText(statisticsColors_[index].color + QStringLiteral("像素：--"));
+    latestStatistics_.reset();
+    refreshStatisticsLabels();
+}
+
+bool ReplicaRow::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == pixelStatisticsHost_ && event->type() == QEvent::Show) {
+        refreshStatisticsLabels();
     }
+    return QFrame::eventFilter(watched, event);
 }
 
 void ReplicaRow::setStatisticsInterval(int milliseconds)

@@ -367,6 +367,35 @@ private slots:
         QCOMPARE(results[2]->pixelCount, qsizetype{48});
     }
 
+    void mergesTargetsOnlyForMatchingRegionsAndRefreshesCachedTolerance()
+    {
+        NativeGateway gateway(fakeFunctions());
+        const PixelColorTarget red{QStringLiteral("#ff0000"), 0};
+        const PixelColorTarget white{QStringLiteral("#ffffff"), 0};
+        const PixelColorTarget black{QStringLiteral("#000000"), 0};
+        const QRect first(0, 0, 1, 1), second(1, 0, 1, 1);
+        const auto requests = QList<PixelStatisticsRequest>{
+            {first, {red}}, {second, {white}}, {first, {black}}};
+        for (int repeat = 0; repeat < 2; ++repeat) {
+            const auto results = gateway.captureWindowStatisticsRequests(123, requests);
+            QCOMPARE(results.size(), 3);
+            QCOMPARE(results[0]->count(red), qsizetype{1});
+            QCOMPARE(results[0]->count(black), qsizetype{0});
+            QCOMPARE(results[0]->count(white), qsizetype{-1});
+            QCOMPARE(results[1]->count(white), qsizetype{1});
+            QCOMPARE(results[1]->count(red), qsizetype{-1});
+            QCOMPARE(results[2]->count(red), qsizetype{1});
+            QCOMPARE(results[2]->colors.size(), 2);
+        }
+        QCOMPARE(state_.captureCount, 2);
+        QCOMPARE(state_.pixelFreeCount, 2);
+        const PixelColorTarget broadRed{red.color, 255};
+        const auto changed = gateway.captureWindowStatisticsRequests(123, {{second, {broadRed}}});
+        QCOMPARE(changed[0]->count(broadRed), qsizetype{1});
+        const auto restored = gateway.captureWindowStatisticsRequests(123, {{second, {red}}});
+        QCOMPARE(restored[0]->count(red), qsizetype{0});
+    }
+
     void freesUnexpectedPixelsWhenNativeCaptureReportsFailure()
     {
         state_.captureStatus = -4;

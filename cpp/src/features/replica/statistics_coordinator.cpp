@@ -1,4 +1,5 @@
 #include "features/replica/statistics_coordinator.h"
+#include "config/config_types.h"
 #include "runtime/performance_recorder.h"
 
 #include <algorithm>
@@ -17,6 +18,7 @@ namespace {
 constexpr int kMaximumCaptureConcurrency = 2;
 constexpr int kMinimumTimerDelayMs = 5;
 constexpr int kMaximumTimerDelayMs = 1000;
+constexpr int kMinimumSourceCaptureIntervalMs = kStatisticsIntervalMinimumMs;
 
 struct BatchOutcome {
     QList<std::optional<PixelStatistics>> results;
@@ -31,11 +33,9 @@ StatisticsCoordinator::StatisticsCoordinator(NativeGateway& gateway, QObject* pa
     auto elapsed = std::make_shared<QElapsedTimer>();
     elapsed->start();
     clock_ = [elapsed] { return elapsed->elapsed(); };
-    capture_ = [&gateway](
-                   std::uintptr_t hwnd,
-                   const QList<std::optional<QRect>>& regions,
-                   const QList<PixelColorTarget>& targets) {
-        return gateway.captureWindowStatistics(hwnd, regions, targets);
+    plannedCapture_ = [&gateway](
+                   std::uintptr_t hwnd, const QList<PixelStatisticsRequest>& requests) {
+        return gateway.captureWindowStatisticsRequests(hwnd, requests);
     };
     frameCapture_ = gateway.frameCaptureFunction();
     ownsExecutor_ = true;
@@ -89,6 +89,39 @@ StatisticsCoordinator::~StatisticsCoordinator()
     if (ownsExecutor_) { threadPool_.waitForDone(); }
 }
 
+StatisticsCoordinator::StatisticsCoordinator(
+    StatisticsClock clock, PlannedStatisticsCapture capture, StatisticsExecutor executor,
+    QObject* parent)
+    : QObject(parent), clock_(std::move(clock)), plannedCapture_(std::move(capture)),
+      executor_(std::move(executor))
+{
+    initialize();
+}
+
+void StatisticsCoordinator::setResultHandler(
+    ReplicaId id, QObject* owner, StatisticsResultHandler handler)
+{
+    auto previous = resultHandlers_.find(id);
+    if (previous != resultHandlers_.end()) {
+        disconnect(previous->destroyed);
+        resultHandlers_.erase(previous);
+    }
+    if (!owner || !handler) { return; }
+    const auto destroyed = connect(owner, &QObject::destroyed, this,
+        [this, id] { resultHandlers_.remove(id); });
+    resultHandlers_.insert(id, {owner, std::move(handler), destroyed});
+}
+
+void StatisticsCoordinator::deliverResult(
+    ReplicaId id, const std::optional<PixelStatistics>& result)
+{
+    const auto found = resultHandlers_.constFind(id);
+    if (found == resultHandlers_.cend() || !found->owner) { return; }
+    // The callback may remove or replace its own subscription.
+    const auto callback = found->callback;
+    callback(result);
+}
+
 void StatisticsCoordinator::initialize()
 {
     setObjectName(QStringLiteral("statisticsCoordinator"));
@@ -110,6 +143,8 @@ void StatisticsCoordinator::upsert(
         remove(id);
         return;
     }
+
+    intervalMs = std::max(intervalMs, kMinimumSourceCaptureIntervalMs);
 
     const auto normalizedTargets = normalizedPixelColorTargets(targets);
     const auto existing = registrations_.constFind(id);
@@ -265,13 +300,15 @@ void StatisticsCoordinator::processDue()
         std::optional<std::uintptr_t> selectedSource;
         qint64 selectedDue = std::numeric_limits<qint64>::max();
         for (const auto& registration : std::as_const(registrations_)) {
+            const qint64 due = std::max(registration.nextDueMs,
+                sourceReadyAtMs_.value(registration.hwnd));
             if (!registration.inFlight
-                && registration.nextDueMs <= nowMs
+                && due <= nowMs
                 && !inFlightSources_.contains(registration.hwnd)
                 && !inFlightFrames_.values().contains(registration.hwnd)
-                && registration.nextDueMs < selectedDue) {
+                && due < selectedDue) {
                 selectedSource = registration.hwnd;
-                selectedDue = registration.nextDueMs;
+                selectedDue = due;
             }
         }
         if (!selectedSource.has_value()) {
@@ -304,6 +341,7 @@ void StatisticsCoordinator::dispatchBatch(
     QList<Snapshot> snapshots;
     QList<std::optional<QRect>> regions;
     QList<PixelColorTarget> targets;
+    QList<PixelStatisticsRequest> requests;
     snapshots.reserve(ids.size());
     regions.reserve(ids.size());
     for (const ReplicaId id : ids) {
@@ -312,13 +350,17 @@ void StatisticsCoordinator::dispatchBatch(
             continue;
         }
         iterator->inFlight = true;
-        do {
-            iterator->nextDueMs += iterator->intervalMs;
-        } while (iterator->nextDueMs <= nowMs);
+        // A delayed request starts a new period; never catch up with an early
+        // follow-up sample, including registrations slower than the source cap.
+        iterator->nextDueMs = nowMs + iterator->intervalMs;
         snapshots.append(Snapshot{id, hwnd, iterator->region, iterator->version, nowMs});
         regions.append(iterator->region);
-        for (const auto& target : iterator->targets) {
-            if (!targets.contains(target)) { targets.append(target); }
+        if (plannedCapture_) {
+            requests.append({iterator->region, iterator->targets});
+        } else {
+            for (const auto& target : iterator->targets) {
+                if (!targets.contains(target)) { targets.append(target); }
+            }
         }
     }
     if (snapshots.isEmpty()) {
@@ -326,6 +368,13 @@ void StatisticsCoordinator::dispatchBatch(
     }
 
     inFlightSources_.insert(hwnd);
+    // Expired entries no longer enforce a limit; retire them so closed sources
+    // do not accumulate. In-flight sources are still excluded independently.
+    for (auto iterator = sourceReadyAtMs_.begin(); iterator != sourceReadyAtMs_.end();) {
+        if (iterator.value() <= nowMs) { iterator = sourceReadyAtMs_.erase(iterator); }
+        else { ++iterator; }
+    }
+    sourceReadyAtMs_.insert(hwnd, nowMs + kMinimumSourceCaptureIntervalMs);
     ++diagnostics_.activeBatches;
     diagnostics_.maximumActiveBatches = std::max(
         diagnostics_.maximumActiveBatches,
@@ -338,15 +387,17 @@ void StatisticsCoordinator::dispatchBatch(
 
     const QPointer<StatisticsCoordinator> guard(this);
     const auto capture = capture_;
+    const auto plannedCapture = plannedCapture_;
     const qint64 queuedAt = PerformanceRecorder::enabled() ? PerformanceRecorder::nowNs() : 0;
-    executor_([guard, capture, hwnd, snapshots, regions, targets, queuedAt] {
+    executor_([guard, capture, plannedCapture, hwnd, snapshots, regions, targets, requests, queuedAt] {
         const qint64 startedAt = queuedAt != 0 ? PerformanceRecorder::nowNs() : 0;
         if (queuedAt != 0) {
             PerformanceRecorder::record("scheduler.worker_wait", startedAt - queuedAt, hwnd);
         }
         BatchOutcome outcome;
         try {
-            outcome.results = capture(hwnd, regions, targets);
+            outcome.results = plannedCapture ? plannedCapture(hwnd, requests)
+                                             : capture(hwnd, regions, targets);
             outcome.failed = outcome.results.size() != snapshots.size();
         } catch (...) {
             outcome.failed = true;
@@ -384,6 +435,9 @@ void StatisticsCoordinator::completeBatch(
     bool failed)
 {
     const PerformanceScope timing("scheduler.delivery", hwnd);
+    // Start the cooldown after completion, so a queued or slow PrintWindow
+    // cannot be followed immediately by another request, including on failure.
+    sourceReadyAtMs_.insert(hwnd, clock_() + kMinimumSourceCaptureIntervalMs);
     inFlightSources_.remove(hwnd);
     diagnostics_.activeBatches = std::max(0, diagnostics_.activeBatches - 1);
     if (failed) {
@@ -406,6 +460,7 @@ void StatisticsCoordinator::completeBatch(
             iterator->inFlight = false;
             if (failed || index >= results.size() || !results[index].has_value()) {
                 emit statisticsUnavailable(snapshot.id);
+                deliverResult(snapshot.id, std::nullopt);
             } else {
                 PerformanceRecorder::record("scheduler.result_age",
                     std::max<qint64>(0, clock_() - snapshot.requestedAtMs) * 1000000, hwnd);
@@ -414,6 +469,7 @@ void StatisticsCoordinator::completeBatch(
                     results[index]->redCount,
                     results[index]->whiteCount);
                 emit colorStatisticsReady(snapshot.id, *results[index]);
+                deliverResult(snapshot.id, results[index]);
             }
         }
     }
@@ -440,7 +496,8 @@ void StatisticsCoordinator::armTimer()
             || inFlightFrames_.values().contains(registration.hwnd)) {
             continue;
         }
-        nextDueMs = std::min(nextDueMs, registration.nextDueMs);
+        nextDueMs = std::min(nextDueMs, std::max(registration.nextDueMs,
+            sourceReadyAtMs_.value(registration.hwnd)));
     }
     if (nextDueMs == std::numeric_limits<qint64>::max()) {
         timer_->stop();

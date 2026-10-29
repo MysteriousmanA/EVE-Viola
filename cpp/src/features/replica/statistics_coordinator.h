@@ -7,6 +7,7 @@
 #include <QHash>
 #include <QList>
 #include <QObject>
+#include <QPointer>
 #include <QRect>
 #include <QSet>
 #include <QThreadPool>
@@ -23,6 +24,9 @@ using StatisticsCapture = std::function<QList<std::optional<PixelStatistics>>(
 using StatisticsExecutor = std::function<void(std::function<void()>)>;
 using ColorStatisticsCapture = std::function<QList<std::optional<PixelStatistics>>(
     std::uintptr_t, const QList<std::optional<QRect>>&, const QList<PixelColorTarget>&)>;
+using PlannedStatisticsCapture = std::function<QList<std::optional<PixelStatistics>>(
+    std::uintptr_t, const QList<PixelStatisticsRequest>&)>;
+using StatisticsResultHandler = std::function<void(const std::optional<PixelStatistics>&)>;
 
 struct StatisticsDiagnostics {
     quint64 completedBatches{};
@@ -49,6 +53,9 @@ public:
     StatisticsCoordinator(
         StatisticsClock clock, ColorStatisticsCapture capture, StatisticsExecutor executor,
         QObject* parent = nullptr);
+    StatisticsCoordinator(
+        StatisticsClock clock, PlannedStatisticsCapture capture, StatisticsExecutor executor,
+        QObject* parent = nullptr);
     ~StatisticsCoordinator() override;
 
     void upsert(
@@ -58,6 +65,8 @@ public:
         int intervalMs,
         const QList<PixelColorTarget>& targets = defaultPixelColorTargets());
     void remove(ReplicaId id);
+    // One lifetime-bound recipient per replica; public diagnostic signals remain available.
+    void setResultHandler(ReplicaId id, QObject* owner, StatisticsResultHandler handler);
     void start();
     void stop();
     void processDue();
@@ -76,6 +85,11 @@ signals:
     void idle();
 
 private:
+    struct ResultHandler {
+        QPointer<QObject> owner;
+        StatisticsResultHandler callback;
+        QMetaObject::Connection destroyed;
+    };
     struct Registration {
         ReplicaId id{};
         std::uintptr_t hwnd{};
@@ -104,9 +118,11 @@ private:
         const QList<std::optional<PixelStatistics>>& results,
         bool failed);
     void armTimer();
+    void deliverResult(ReplicaId id, const std::optional<PixelStatistics>& result);
 
     StatisticsClock clock_;
     ColorStatisticsCapture capture_;
+    PlannedStatisticsCapture plannedCapture_;
     StatisticsExecutor executor_;
     std::function<QImage(std::uintptr_t)> frameCapture_;
     QHash<ReplicaId, quint64> frameRequests_;
@@ -114,7 +130,10 @@ private:
     int activeFrameCaptures_{};
     quint64 nextFrameRequest_{1};
     QHash<ReplicaId, Registration> registrations_;
+    QHash<ReplicaId, ResultHandler> resultHandlers_;
     QSet<std::uintptr_t> inFlightSources_;
+    // Retained across registration edits and stop/start to prevent capture bursts.
+    QHash<std::uintptr_t, qint64> sourceReadyAtMs_;
     QThreadPool threadPool_;
     QTimer* timer_{};
     StatisticsDiagnostics diagnostics_;

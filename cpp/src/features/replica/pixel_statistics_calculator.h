@@ -42,6 +42,22 @@ struct PixelStatistics {
 
 Q_DECLARE_METATYPE(PixelStatistics)
 
+// Immutable once compiled; safe to share between capture workers and scans.
+struct PixelStatisticsPlan {
+    struct Matcher {
+        PixelColorTarget target;
+        int redMin, redMax, greenMin, greenMax, blueMin, blueMax;
+    };
+    QList<Matcher> matchers;
+};
+
+[[nodiscard]] PixelStatisticsPlan compilePixelStatisticsPlan(
+    const QList<PixelColorTarget>& targets);
+
+[[nodiscard]] PixelStatistics calculatePlannedPixelStatistics(
+    const uchar* pixels, int width, int height, qsizetype bytesPerLine,
+    std::optional<QRect> region, const PixelStatisticsPlan& plan);
+
 // The borrowed-buffer overload accepts RGB32/ARGB32 rows with caller-owned storage.
 // The QImage overload also converts other formats before scanning.
 [[nodiscard]] bool isRedPixelRgb(QRgb pixel) noexcept;

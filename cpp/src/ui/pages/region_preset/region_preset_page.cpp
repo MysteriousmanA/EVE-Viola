@@ -83,7 +83,9 @@ void RegionPresetPage::setPresets(const QList<RegionPreset> &presets)
 
         auto *interval = new QComboBox;
         interval->setObjectName(QStringLiteral("regionPresetInterval"));
-        for (int milliseconds = kStatisticsIntervalDisabledMs;
+        interval->addItem(statisticsIntervalLabel(kStatisticsIntervalDisabledMs),
+            kStatisticsIntervalDisabledMs);
+        for (int milliseconds = kStatisticsIntervalMinimumMs;
              milliseconds <= kStatisticsIntervalMaximumMs;
              milliseconds += kStatisticsIntervalStepMs) {
             interval->addItem(statisticsIntervalLabel(milliseconds), milliseconds);

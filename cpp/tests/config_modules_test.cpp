@@ -2,6 +2,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include "config/serialization/application_options_json.h"
+#include "config/config_validation.h"
 #include "config/serialization/quick_switch_json.h"
 #include "config/serialization/replicas_json.h"
 #include "config/serialization/presets_json.h"
@@ -17,6 +18,26 @@ class ConfigModulesTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void statisticsIntervalsMigrateLegacyFastValuesAndPreserveDisabledAndSlowValues()
+    {
+        for (const int milliseconds : {0, 500, 1000, 1500, 2500, 10000}) {
+            const int expected = milliseconds > 0 && milliseconds < 1500 ? 1500 : milliseconds;
+            const QJsonObject object{{QStringLiteral("name"), QStringLiteral("region")},
+                {QStringLiteral("width"), 10}, {QStringLiteral("height"), 10},
+                {QStringLiteral("statisticsIntervalMs"), milliseconds}};
+            const auto replicas = parseReplicas(QJsonArray{object});
+            QCOMPARE(replicas.first().statisticsIntervalMs, expected);
+            const auto regions = parseRegionPresets(QJsonArray{object});
+            QCOMPARE(regions.first().statisticsIntervalMs, expected);
+            const auto preset = parsePresetObject(QJsonObject{
+                {QStringLiteral("replicas"), QJsonArray{object}}});
+            QCOMPARE(preset.replicas.first().statisticsIntervalMs, expected);
+            QCOMPARE(isValidStatisticsIntervalMs(milliseconds), milliseconds == expected);
+        }
+        QCOMPARE(ReplicaConfig{}.statisticsIntervalMs, 1500);
+        QCOMPARE(RegionPreset{}.statisticsIntervalMs, 1500);
+    }
+
     void independentSerializersPreserveSectionLayout()
     {
         AppConfig config;

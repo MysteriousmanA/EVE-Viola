@@ -347,6 +347,16 @@ QList<std::optional<PixelStatistics>> NativeGateway::captureWindowStatistics(
     const QList<std::optional<QRect>>& regions,
     const QList<PixelColorTarget>& targets) const
 {
+    QList<PixelStatisticsRequest> requests;
+    requests.reserve(regions.size());
+    for (const auto& region : regions) { requests.append({region, targets}); }
+    return captureWindowStatisticsRequests(hwnd, requests);
+}
+
+QList<std::optional<PixelStatistics>> NativeGateway::captureWindowStatisticsRequests(
+    std::uintptr_t hwnd, const QList<PixelStatisticsRequest>& requests) const
+{
+    if (requests.isEmpty()) { return {}; }
     const PerformanceScope timing("statistics.total", hwnd);
     std::int32_t width = 0;
     std::int32_t height = 0;
@@ -387,31 +397,52 @@ QList<std::optional<PixelStatistics>> NativeGateway::captureWindowStatistics(
     // Multiple replicas can request the same region from one captured source.
     // Scan each exact region once, then fan its result back out to every replica.
     QList<std::optional<QRect>> uniqueRegions;
+    QList<QList<PixelColorTarget>> regionTargets;
     QList<qsizetype> resultRegionIndexes;
-    uniqueRegions.reserve(regions.size());
-    resultRegionIndexes.reserve(regions.size());
-    for (const auto& region : regions) {
+    uniqueRegions.reserve(requests.size());
+    resultRegionIndexes.reserve(requests.size());
+    for (const auto& request : requests) {
+        const auto& region = request.region;
         const auto existing = std::find(
             uniqueRegions.cbegin(), uniqueRegions.cend(), region);
-        if (existing != uniqueRegions.cend()) {
-            resultRegionIndexes.append(existing - uniqueRegions.cbegin());
-            continue;
+        const qsizetype index = existing - uniqueRegions.cbegin();
+        if (existing == uniqueRegions.cend()) {
+            uniqueRegions.append(region);
+            regionTargets.append(QList<PixelColorTarget>{});
         }
-        resultRegionIndexes.append(uniqueRegions.size());
-        uniqueRegions.append(region);
+        resultRegionIndexes.append(index);
+        for (const auto& target : request.targets) {
+            if (!regionTargets[index].contains(target)) { regionTargets[index].append(target); }
+        }
     }
 
+    // Each worker owns a bounded cache. Plans contain no pixels, HWNDs or frame
+    // ownership, and are keyed by the complete color/tolerance specification.
+    struct CachedPlan {
+        QList<PixelColorTarget> targets;
+        PixelStatisticsPlan plan;
+    };
+    thread_local QList<CachedPlan> cachedPlans;
+    constexpr qsizetype maximumCachedPlans = 32;
     QList<std::optional<PixelStatistics>> uniqueResults;
     uniqueResults.reserve(uniqueRegions.size());
-    for (const auto& region : uniqueRegions) {
+    for (qsizetype index = 0; index < uniqueRegions.size(); ++index) {
+        const auto& targets = regionTargets[index];
+        auto cached = std::find_if(cachedPlans.cbegin(), cachedPlans.cend(),
+            [&targets](const auto& entry) { return entry.targets == targets; });
+        if (cached == cachedPlans.cend()) {
+            if (cachedPlans.size() >= maximumCachedPlans) { cachedPlans.removeFirst(); }
+            cachedPlans.append({targets, compilePixelStatisticsPlan(targets)});
+            cached = cachedPlans.cend() - 1;
+        }
         const qint64 startNs = PerformanceRecorder::enabled() ? PerformanceRecorder::nowNs() : 0;
-        const auto statistics = calculatePixelStatistics(
+        const auto statistics = calculatePlannedPixelStatistics(
             view,
             width,
             height,
             stride,
-            region,
-            targets);
+            uniqueRegions[index],
+            cached->plan);
         if (startNs != 0) {
             PerformanceRecorder::record("statistics.scan", PerformanceRecorder::nowNs() - startNs,
                                         hwnd, static_cast<quint64>(statistics.pixelCount));
@@ -424,7 +455,7 @@ QList<std::optional<PixelStatistics>> NativeGateway::captureWindowStatistics(
     }
 
     QList<std::optional<PixelStatistics>> results;
-    results.reserve(regions.size());
+    results.reserve(requests.size());
     for (const qsizetype index : resultRegionIndexes) {
         results.append(uniqueResults.at(index));
     }

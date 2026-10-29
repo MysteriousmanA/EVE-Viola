@@ -102,6 +102,33 @@ PixelStatistics calculatePixelStatistics(
         || bytesPerLine < static_cast<qsizetype>(width) * 4) {
         return {};
     }
+    return calculatePlannedPixelStatistics(
+        pixels, width, height, bytesPerLine, region, compilePixelStatisticsPlan(targets));
+}
+
+PixelStatisticsPlan compilePixelStatisticsPlan(const QList<PixelColorTarget>& targets)
+{
+    PixelStatisticsPlan plan;
+    for (const auto& target : normalizedPixelColorTargets(targets)) {
+        if (target.tolerance < 0) { continue; }
+        const auto value = pixelColorValue(target.color);
+        const int tolerance = target.tolerance;
+        plan.matchers.append({target,
+            value.red() - tolerance, value.red() + tolerance,
+            value.green() - tolerance, value.green() + tolerance,
+            value.blue() - tolerance, value.blue() + tolerance});
+    }
+    return plan;
+}
+
+PixelStatistics calculatePlannedPixelStatistics(
+    const uchar* pixels, int width, int height, qsizetype bytesPerLine,
+    std::optional<QRect> region, const PixelStatisticsPlan& plan)
+{
+    if (pixels == nullptr || width <= 0 || height <= 0
+        || bytesPerLine < static_cast<qsizetype>(width) * 4) {
+        return {};
+    }
 
     const QRect bounds(0, 0, width, height);
     const QRect sampleRegion = region.has_value()
@@ -114,25 +141,16 @@ PixelStatistics calculatePixelStatistics(
     qsizetype redCount = 0;
     qsizetype whiteCount = 0;
     qsizetype blueCount = 0;
-    const auto eveBlue = pixelColorValue(QStringLiteral("蓝色"));
-    const int eveBlueRed = eveBlue.red();
-    const int eveBlueGreen = eveBlue.green();
-    const int eveBlueBlue = eveBlue.blue();
+    constexpr int eveBlueRed = 48;
+    constexpr int eveBlueGreen = 79;
+    constexpr int eveBlueBlue = 91;
     // Keep the muted EVE blue distinct from neutral gray and pure RGB blue.
     constexpr int eveBlueTolerance = 16;
-    struct Matcher {
-        int redMin, redMax, greenMin, greenMax, blueMin, blueMax;
-    };
-    QList<Matcher> matchers;
+    const auto& matchers = plan.matchers;
     QList<PixelColorCount> colors;
-    for (const auto& target : normalizedPixelColorTargets(targets)) {
-        if (target.tolerance < 0) { continue; }
-        const auto value = pixelColorValue(target.color);
-        const int tolerance = target.tolerance;
-        matchers.append({value.red() - tolerance, value.red() + tolerance,
-                         value.green() - tolerance, value.green() + tolerance,
-                         value.blue() - tolerance, value.blue() + tolerance});
-        colors.append({target, 0});
+    colors.reserve(matchers.size());
+    for (const auto& matcher : matchers) {
+        colors.append({matcher.target, 0});
     }
 
     for (int y = sampleRegion.top(); y <= sampleRegion.bottom(); ++y) {
