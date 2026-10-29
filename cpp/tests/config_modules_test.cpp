@@ -108,12 +108,35 @@ private slots:
         QCOMPARE(rules.size(), 1);
         QCOMPARE(nextNumber, 10);
         QCOMPARE(rules.first().triggerCondition1.expression, QStringLiteral(">=20"));
+        QCOMPARE(rules.first().triggerConditionRelation, TriggerConditionRelation::And);
         QCOMPARE(rules.first().triggerFeedback, TriggerFeedback::Popup);
         QCOMPARE(rules.first().postTriggerAction, PostTriggerAction::Jump);
         const auto condition = parseTriggerCondition(rules.first().triggerCondition1.expression);
         QVERIFY(condition.has_value());
         QVERIFY(evaluateTriggerCondition(*condition, 20));
         QVERIFY(!evaluateTriggerCondition(*condition, 19));
+    }
+
+    void colorRuleRelationRoundTripsAndDefaultsToAnd()
+    {
+        ColorRule rule;
+        rule.number = 1;
+        for (const auto relation : {TriggerConditionRelation::And, TriggerConditionRelation::Or}) {
+            rule.triggerConditionRelation = relation;
+            const auto json = colorRuleToJson(rule);
+            QCOMPARE(json.value(QStringLiteral("triggerConditionRelation")).toString(),
+                     relation == TriggerConditionRelation::Or ? QStringLiteral("or") : QStringLiteral("and"));
+            QCOMPARE(parseColorRules(QJsonArray{json}, nullptr).first(), rule);
+        }
+        auto json = colorRuleToJson(rule);
+        json.remove(QStringLiteral("triggerConditionRelation"));
+        QCOMPARE(parseColorRules(QJsonArray{json}, nullptr).first().triggerConditionRelation,
+                 TriggerConditionRelation::And);
+        for (const auto value : {QJsonValue(QStringLiteral("invalid")), QJsonValue(1), QJsonValue()}) {
+            json.insert(QStringLiteral("triggerConditionRelation"), value);
+            QCOMPARE(parseColorRules(QJsonArray{json}, nullptr).first().triggerConditionRelation,
+                     TriggerConditionRelation::And);
+        }
     }
 
     void regionAndPartitionSchemasRoundTripIndependently()

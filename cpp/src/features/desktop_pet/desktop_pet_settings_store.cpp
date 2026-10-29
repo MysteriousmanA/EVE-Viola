@@ -42,8 +42,12 @@ DesktopPetSettingsRead DesktopPetSettingsStore::load() const
 }
 bool DesktopPetSettingsStore::save(const QJsonObject &settings) const
 {
-    if (!load().writable) {
+    const auto previous = load();
+    if (!previous.writable) {
         return false;
+    }
+    if (previous.loaded && previous.settings == settings) {
+        return true;
     }
     if (directory_.isEmpty() || !QDir().mkpath(directory_)) {
         return false;

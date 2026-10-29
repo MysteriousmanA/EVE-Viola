@@ -1,5 +1,11 @@
 #include "features/color_rule/color_rule_config.h"
 
+QString triggerConditionRelationName(TriggerConditionRelation relation)
+{
+    return relation == TriggerConditionRelation::Or
+        ? QStringLiteral("或（任一满足）") : QStringLiteral("与（同时满足）");
+}
+
 QString triggerFeedbackName(TriggerFeedback feedback)
 {
     switch (feedback) {

@@ -15,7 +15,7 @@ void DesktopPetPage::connectFloatingPetSignals()
 {
     connect(petWindow_, &FloatingPetWindow::sizeChanged, this, [this](int size) {
         sizeSlider_->setValue(size);
-        saveSettings();
+        messagePersistTimer_->start();
     });
     connect(petWindow_, &FloatingPetWindow::leftClicked,
             petWindow_, &FloatingPetWindow::toggleTriggerHistory);
@@ -46,7 +46,7 @@ void DesktopPetPage::connectFloatingPetSignals()
     connect(petWindow_, &FloatingPetWindow::positionChanged,
             this, [this] {
                 petPositionInitialized_ = true;
-                saveSettings();
+                messagePersistTimer_->start();
             });
 }
 

@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QFile>
+#include <QFileInfo>
 #include <QTemporaryDir>
 #include <QJsonObject>
 #include <QTimeZone>
@@ -12,6 +13,21 @@ class PageFeatureServicesTest final : public QObject
 {
     Q_OBJECT
   private slots:
+    void identicalPetSettingsDoNotRewriteFile()
+    {
+        QTemporaryDir directory;
+        DesktopPetSettingsStore store(directory.path());
+        const QJsonObject settings{{QStringLiteral("enabled"), true}};
+        QVERIFY(store.save(settings));
+        QFile file(directory.filePath(QStringLiteral("desktopPet.json")));
+        QVERIFY(file.open(QIODevice::ReadWrite));
+        QVERIFY(file.setFileTime(QDateTime(QDate(2000, 1, 1), QTime(0, 0)),
+                                 QFileDevice::FileModificationTime));
+        const auto before = QFileInfo(file).lastModified();
+        file.close();
+        QVERIFY(store.save(settings));
+        QCOMPARE(QFileInfo(file).lastModified(), before);
+    }
     void undoLinesPreservesSettings()
     {
         PagePartitionModel model;

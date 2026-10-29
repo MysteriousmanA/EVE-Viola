@@ -112,6 +112,14 @@ std::optional<ColorRule> promptColorRule(QWidget *parent, const ColorRule &initi
     const ConditionEditor condition1 = createConditionEditor(initial.triggerCondition1, 1);
     const ConditionEditor condition2 = createConditionEditor(initial.triggerCondition2, 2);
 
+    auto *relation = new QComboBox;
+    relation->setObjectName(QStringLiteral("triggerConditionRelation"));
+    for (const auto value : {TriggerConditionRelation::And, TriggerConditionRelation::Or}) {
+        relation->addItem(triggerConditionRelationName(value), static_cast<int>(value));
+    }
+    relation->setCurrentIndex(relation->findData(static_cast<int>(initial.triggerConditionRelation)));
+    relation->setToolTip(QStringLiteral("选择两个触发条件的关系；仅填写一个时按该条件判断，两个都为空时不触发。"));
+
     auto *feedback = new QComboBox;
     feedback->setObjectName(QStringLiteral("triggerFeedbackType"));
     feedback->addItem(triggerFeedbackName(TriggerFeedback::None),
@@ -164,6 +172,7 @@ std::optional<ColorRule> promptColorRule(QWidget *parent, const ColorRule &initi
     priority->setToolTip(QStringLiteral("最高优先级立即执行，仍参与白名单匹配，且不被节点的消除效果拦截。"));
     form->addRow(QStringLiteral("优先级"), priority);
     form->addRow(QStringLiteral("触发条件 1"), condition1.widget);
+    form->addRow(QStringLiteral("条件关系"), relation);
     form->addRow(QStringLiteral("触发条件 2"), condition2.widget);
     form->addRow(QStringLiteral("触发反馈"), feedback);
     form->addRow(QString{}, audioRow);
@@ -215,6 +224,7 @@ std::optional<ColorRule> promptColorRule(QWidget *parent, const ColorRule &initi
     result.priority = static_cast<ColorRulePriority>(priority->currentIndex());
     result.triggerCondition1 = readCondition(condition1);
     result.triggerCondition2 = readCondition(condition2);
+    result.triggerConditionRelation = static_cast<TriggerConditionRelation>(relation->currentData().toInt());
     result.triggerFeedback = feedbackType;
     result.triggerFeedbackAudio = audioPath->text().trimmed();
     result.postTriggerAction = actionType;

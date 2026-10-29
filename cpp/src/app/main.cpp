@@ -20,7 +20,7 @@ int main(int argc, char* argv[])
 {
     QApplication application(argc, argv);
     QApplication::setApplicationName(QStringLiteral("EVE-Viola"));
-    QApplication::setApplicationVersion(QStringLiteral("1.1.0"));
+    QApplication::setApplicationVersion(QStringLiteral("1.1.1"));
     QApplication::setApplicationDisplayName(QStringLiteral("EVE-Viola"));
     QApplication::setOrganizationName(QStringLiteral("EVE-Viola"));
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/viola.png")));
@@ -66,6 +66,17 @@ int main(int argc, char* argv[])
 
     RuntimeLogger::initialize(
         QCoreApplication::applicationDirPath() + QStringLiteral("/logs"));
+    const auto flushRuntimeLog = qScopeGuard([] {
+        if (!RuntimeLogger::flush()) {
+            qWarning() << "Runtime log flush failed";
+        }
+    });
+    QTimer runtimeLogTimer;
+    runtimeLogTimer.setInterval(2000);
+    QObject::connect(&runtimeLogTimer, &QTimer::timeout, &application, [] {
+        static_cast<void>(RuntimeLogger::flush());
+    });
+    runtimeLogTimer.start();
 
     const QString performancePath = parser.isSet(performanceOption)
         ? parser.value(performanceOption)

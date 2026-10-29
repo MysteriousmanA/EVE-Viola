@@ -10,6 +10,7 @@
 #include "config/serialization/quick_switch_json.h"
 #include "config/serialization/application_options_json.h"
 #include <QDir>
+#include <QFile>
 
 using namespace ConfigDocumentIO;
 using namespace ConfigSerialization;
@@ -127,39 +128,36 @@ bool JsonConfigStore::save(const AppConfig& config, QString* error) const
         return fail(error, QStringLiteral("无法创建配置目录：%1").arg(directory.path()));
     }
 
-    // Validate every existing section before replacing any of them. A failed
-    // load must never turn a subsequent autosave into a destructive reset.
-    AppConfig previous;
-    if (!load(previous, error)) {
-        return false;
-    }
-
-    if (!writeJsonObject(sectionFilePath(directoryPath_, QStringLiteral("regionPresets.json")),
-                         regionPresetsSectionToJson(config.regionPresets), error)) {
-        return false;
-    }
-    if (!writeJsonObject(sectionFilePath(directoryPath_, QStringLiteral("colorRules.json")),
-                         colorRulesSectionToJson(config.colorRules, config.nextColorRuleNumber),
-                         error)) {
-        return false;
-    }
-    if (!writeJsonObject(sectionFilePath(directoryPath_, QStringLiteral("pagePartition.json")),
-                         pagePartitionConfigToJson(config.pagePartition), error)) {
-        return false;
-    }
-    if (!writeJsonObject(sectionFilePath(directoryPath_, QStringLiteral("advancedLogic.json")),
-                         advancedLogicConfigToJson(config.advancedLogic), error)) {
-        return false;
-    }
-    if (!writeJsonObject(sectionFilePath(directoryPath_, QStringLiteral("replicas.json")),
-                         replicasSectionToJson(config), error)) {
-        return false;
-    }
-
+    struct Section {
+        QString name;
+        QJsonObject object;
+        bool changed = false;
+    };
+    QList<Section> sections{
+        {QStringLiteral("regionPresets.json"), regionPresetsSectionToJson(config.regionPresets)},
+        {QStringLiteral("colorRules.json"), colorRulesSectionToJson(config.colorRules, config.nextColorRuleNumber)},
+        {QStringLiteral("pagePartition.json"), pagePartitionConfigToJson(config.pagePartition)},
+        {QStringLiteral("advancedLogic.json"), advancedLogicConfigToJson(config.advancedLogic)},
+        {QStringLiteral("replicas.json"), replicasSectionToJson(config)},
+    };
     for (int index = 0; index < kPresetCount; ++index) {
-        if (!writeJsonObject(
-                sectionFilePath(directoryPath_, QStringLiteral("preset%1.json").arg(index + 1)),
-                presetToJson(config.presets[index]), error)) {
+        sections.append({QStringLiteral("preset%1.json").arg(index + 1),
+                         presetToJson(config.presets[index])});
+    }
+
+    // Read each section once, using the same snapshot for validation and change
+    // detection. Validate the entire batch before replacing any existing file.
+    for (auto& section : sections) {
+        const auto path = sectionFilePath(directoryPath_, section.name);
+        QJsonObject previous;
+        if (!readJsonObject(path, &previous, error)) {
+            return false;
+        }
+        section.changed = previous != section.object || !QFile::exists(path);
+    }
+    for (const auto& section : sections) {
+        if (section.changed && !writeJsonObjectAtomically(
+                sectionFilePath(directoryPath_, section.name), section.object, error)) {
             return false;
         }
     }

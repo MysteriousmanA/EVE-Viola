@@ -48,6 +48,85 @@ class ColorLogicEngineTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void conditionRelations_data()
+    {
+        QTest::addColumn<bool>("useOr");
+        QTest::addColumn<int>("conditions");
+        QTest::addColumn<int>("red");
+        QTest::addColumn<int>("white");
+        QTest::addColumn<bool>("expected");
+        QTest::newRow("and-neither") << false << 3 << 0 << 0 << false;
+        QTest::newRow("and-first") << false << 3 << 2 << 0 << false;
+        QTest::newRow("and-second") << false << 3 << 0 << 1 << false;
+        QTest::newRow("and-both") << false << 3 << 2 << 1 << true;
+        QTest::newRow("or-neither") << true << 3 << 0 << 0 << false;
+        QTest::newRow("or-first") << true << 3 << 2 << 0 << true;
+        QTest::newRow("or-second") << true << 3 << 0 << 1 << true;
+        QTest::newRow("or-both") << true << 3 << 2 << 1 << true;
+        QTest::newRow("and-only-first-false") << false << 1 << 0 << 1 << false;
+        QTest::newRow("and-only-first-true") << false << 1 << 2 << 0 << true;
+        QTest::newRow("or-only-first-false") << true << 1 << 0 << 1 << false;
+        QTest::newRow("or-only-first-true") << true << 1 << 2 << 0 << true;
+        QTest::newRow("and-only-second-false") << false << 2 << 2 << 0 << false;
+        QTest::newRow("and-only-second-true") << false << 2 << 0 << 1 << true;
+        QTest::newRow("or-only-second-false") << true << 2 << 2 << 0 << false;
+        QTest::newRow("or-only-second-true") << true << 2 << 0 << 1 << true;
+        QTest::newRow("and-empty") << false << 0 << 2 << 1 << false;
+        QTest::newRow("or-empty") << true << 0 << 2 << 1 << false;
+    }
+
+    void conditionRelations()
+    {
+        QFETCH(bool, useOr);
+        QFETCH(int, conditions);
+        QFETCH(int, red);
+        QFETCH(int, white);
+        QFETCH(bool, expected);
+        auto rule = redRule();
+        rule.triggerCondition1 = conditions & 1 ? rule.triggerCondition1 : ColorRuleCondition{};
+        if (conditions & 2) {
+            rule.triggerCondition2 = {QStringLiteral("白色"), QStringLiteral(">=1")};
+        }
+        rule.triggerConditionRelation = useOr ? TriggerConditionRelation::Or : TriggerConditionRelation::And;
+        ColorLogicEngine engine({rule});
+        engine.setSlotRule(1, 1);
+        engine.setEnabled(true);
+        QCOMPARE(triggerCount(engine.observe(red, white)), expected ? 1 : 0);
+        QCOMPARE(engine.observeNotification({0, red, white}).has_value(), expected);
+    }
+
+    void orRelationKeepsOneEdgeWhenMatchingConditionChanges()
+    {
+        auto rule = redRule();
+        rule.triggerConditionRelation = TriggerConditionRelation::Or;
+        rule.triggerCondition2 = {QStringLiteral("白色"), QStringLiteral(">=1")};
+        ColorLogicEngine engine({rule});
+        engine.setSlotRule(1, 1);
+        engine.setEnabled(true);
+        QCOMPARE(triggerCount(engine.observe(2, 0)), 1);
+        QCOMPARE(triggerCount(engine.observe(2, 1)), 0);
+        QCOMPARE(triggerCount(engine.observe(0, 1)), 0);
+        QCOMPARE(triggerCount(engine.observe(0, 0)), 0);
+        QCOMPARE(triggerCount(engine.observe(0, 1)), 1);
+    }
+
+    void orRelationTreatsInvalidOrUnavailableConditionAsUnmatched()
+    {
+        for (const auto condition : {
+                 ColorRuleCondition{QStringLiteral("白色"), QStringLiteral("bad")},
+                 ColorRuleCondition{QStringLiteral("#123456"), QStringLiteral("<=0"), 0}}) {
+            auto rule = redRule();
+            rule.triggerConditionRelation = TriggerConditionRelation::Or;
+            rule.triggerCondition1 = condition;
+            rule.triggerCondition2 = {QStringLiteral("红色"), QStringLiteral(">=2")};
+            ColorLogicEngine engine({rule});
+            engine.setSlotRule(1, 1);
+            engine.setEnabled(true);
+            QCOMPARE(triggerCount(engine.observe(0, 0)), 0);
+            QCOMPARE(triggerCount(engine.observe(2, 0)), 1);
+        }
+    }
+
     void notificationObservationDoesNotExecuteOrAdvanceRules()
     {
         ColorLogicEngine engine({audioRule(PostTriggerAction::Jump)});

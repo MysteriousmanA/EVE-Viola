@@ -25,6 +25,7 @@ private slots:
         rule.number = 1;
         rule.triggerCondition1 = {QStringLiteral("#abcdef"), QStringLiteral(">=2"), 15};
         rule.triggerCondition2 = {QStringLiteral("蓝色"), QStringLiteral("<10"), 0};
+        rule.triggerConditionRelation = TriggerConditionRelation::Or;
         expected.colorRules.append(rule);
         QString error;
         QVERIFY2(store.save(expected, &error), qPrintable(error));

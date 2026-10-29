@@ -210,6 +210,36 @@ private slots:
         QCOMPARE(edited->triggerCondition1.expression, QStringLiteral(">=2"));
     }
 
+    void colorRuleDialogRestoresAndSavesConditionRelation_data()
+    {
+        QTest::addColumn<bool>("initialOr");
+        QTest::newRow("and-to-or") << false;
+        QTest::newRow("or-to-and") << true;
+    }
+
+    void colorRuleDialogRestoresAndSavesConditionRelation()
+    {
+        QFETCH(bool, initialOr);
+        ColorRule initial;
+        initial.triggerConditionRelation = initialOr ? TriggerConditionRelation::Or : TriggerConditionRelation::And;
+        QTimer::singleShot(0, [initialOr] {
+            auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+            QVERIFY(dialog);
+            auto* relation = dialog->findChild<QComboBox*>(QStringLiteral("triggerConditionRelation"));
+            QVERIFY(relation);
+            QCOMPARE(relation->count(), 2);
+            QCOMPARE(relation->currentData().toInt(), static_cast<int>(
+                initialOr ? TriggerConditionRelation::Or : TriggerConditionRelation::And));
+            relation->setCurrentIndex(relation->findData(static_cast<int>(
+                initialOr ? TriggerConditionRelation::And : TriggerConditionRelation::Or)));
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Save)->click();
+        });
+        const auto edited = promptColorRule(nullptr, initial);
+        QVERIFY(edited);
+        QCOMPARE(edited->triggerConditionRelation,
+                 initialOr ? TriggerConditionRelation::And : TriggerConditionRelation::Or);
+    }
+
     void replicaRowShowsThreePresetsAndCanDisplayCustomColorCounts()
     {
         ReplicaRow row(1);
@@ -904,6 +934,7 @@ private slots:
             PostTriggerAction::Loop});
         config.colorRules[0].triggerCondition2 = {
             QStringLiteral("白色"), QStringLiteral("<=5")};
+        config.colorRules[0].triggerConditionRelation = TriggerConditionRelation::Or;
         QString error;
         QVERIFY2(store.save(config, &error), qPrintable(error));
 
@@ -927,19 +958,21 @@ private slots:
         auto* rules = manager.findChild<QTableWidget*>(QStringLiteral("colorRuleTable"));
         QVERIFY(rules != nullptr);
         QCOMPARE(rules->rowCount(), 1);
-        QCOMPARE(rules->columnCount(), 6);
+        QCOMPARE(rules->columnCount(), 7);
         const QStringList headers{
             QStringLiteral("编号"), QStringLiteral("备注"), QStringLiteral("触发条件 1"),
-            QStringLiteral("触发条件 2"), QStringLiteral("触发反馈"), QStringLiteral("触发后操作")};
+            QStringLiteral("条件关系"), QStringLiteral("触发条件 2"),
+            QStringLiteral("触发反馈"), QStringLiteral("触发后操作")};
         for (int column = 0; column < headers.size(); ++column) {
             QCOMPARE(rules->horizontalHeaderItem(column)->text(), headers[column]);
         }
         QCOMPARE(rules->item(0, 0)->text(), QStringLiteral("4"));
         QCOMPARE(rules->item(0, 1)->text(), QStringLiteral("护盾"));
         QCOMPARE(rules->item(0, 2)->text(), QStringLiteral("红色 >=20"));
-        QCOMPARE(rules->item(0, 3)->text(), QStringLiteral("白色 <=5"));
-        QCOMPARE(rules->item(0, 4)->text(), QStringLiteral("弹窗"));
-        QCOMPARE(rules->item(0, 5)->text(), QStringLiteral("正向循环"));
+        QCOMPARE(rules->item(0, 3)->text(), QStringLiteral("或（任一满足）"));
+        QCOMPARE(rules->item(0, 4)->text(), QStringLiteral("白色 <=5"));
+        QCOMPARE(rules->item(0, 5)->text(), QStringLiteral("弹窗"));
+        QCOMPARE(rules->item(0, 6)->text(), QStringLiteral("正向循环"));
 
         QVERIFY(manager.findChild<QPushButton*>(QStringLiteral("addColorRule")) != nullptr);
         QVERIFY(manager.findChild<QPushButton*>(QStringLiteral("editColorRule")) != nullptr);

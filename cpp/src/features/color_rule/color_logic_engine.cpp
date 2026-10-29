@@ -294,6 +294,7 @@ bool ColorLogicEngine::conditionMet(
     const PixelStatistics& statistics) const
 {
     const ColorRuleCondition conditions[]{rule.triggerCondition1, rule.triggerCondition2};
+    const bool anyCondition = rule.triggerConditionRelation == TriggerConditionRelation::Or;
     int activeConditionCount = 0;
     for (const auto& ruleCondition : conditions) {
         if (ruleCondition.isEmpty()) {
@@ -302,12 +303,16 @@ bool ColorLogicEngine::conditionMet(
         ++activeConditionCount;
         const auto parsed = parseTriggerCondition(ruleCondition.expression);
         const qint64 count = statistics.count({ruleCondition.pixel, ruleCondition.tolerance});
-        if (count < 0 || !parsed.has_value() || parsed->isEmpty()
-            || !evaluateTriggerCondition(*parsed, static_cast<double>(count))) {
+        const bool met = count >= 0 && parsed.has_value() && !parsed->isEmpty()
+            && evaluateTriggerCondition(*parsed, static_cast<double>(count));
+        if (anyCondition && met) {
+            return true;
+        }
+        if (!anyCondition && !met) {
             return false;
         }
     }
-    return activeConditionCount > 0;
+    return !anyCondition && activeConditionCount > 0;
 }
 
 QList<ColorLogicEffect> ColorLogicEngine::cancelSlotFeedback(int slotIndex)

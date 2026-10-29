@@ -20,6 +20,9 @@ QJsonObject colorRuleToJson(const ColorRule& rule)
         {QStringLiteral("note"), rule.note},
         {QStringLiteral("triggerCondition1"), conditionToJson(rule.triggerCondition1)},
         {QStringLiteral("triggerCondition2"), conditionToJson(rule.triggerCondition2)},
+        {QStringLiteral("triggerConditionRelation"),
+         rule.triggerConditionRelation == TriggerConditionRelation::Or
+             ? QStringLiteral("or") : QStringLiteral("and")},
         {QStringLiteral("triggerFeedbackType"), triggerFeedbackName(rule.triggerFeedback)},
         {QStringLiteral("triggerFeedbackAudio"), rule.triggerFeedbackAudio},
         {QStringLiteral("postTriggerAction"), postTriggerActionName(rule.postTriggerAction)},
@@ -55,6 +58,9 @@ QList<ColorRule> parseColorRules(const QJsonArray& array, int* nextNumber)
         rule.note = object.value(QStringLiteral("note")).toString();
         rule.triggerCondition1 = parseCondition(QStringLiteral("triggerCondition1"));
         rule.triggerCondition2 = parseCondition(QStringLiteral("triggerCondition2"));
+        rule.triggerConditionRelation =
+            object.value(QStringLiteral("triggerConditionRelation")).toString() == QStringLiteral("or")
+                ? TriggerConditionRelation::Or : TriggerConditionRelation::And;
         if (!object.contains(QStringLiteral("triggerCondition1"))) {
             rule.triggerCondition1 = {
                 object.value(QStringLiteral("triggerPixel")).toString(),

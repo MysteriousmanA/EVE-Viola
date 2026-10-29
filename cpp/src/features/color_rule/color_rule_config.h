@@ -2,6 +2,7 @@
 
 #include "config/config_types.h"
 
+[[nodiscard]] QString triggerConditionRelationName(TriggerConditionRelation relation);
 [[nodiscard]] QString triggerFeedbackName(TriggerFeedback feedback);
 [[nodiscard]] std::optional<TriggerFeedback> triggerFeedbackFromName(const QString& name);
 [[nodiscard]] QString postTriggerActionName(PostTriggerAction action);

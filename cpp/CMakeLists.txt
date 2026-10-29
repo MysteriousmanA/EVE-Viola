@@ -219,6 +219,14 @@ set_tests_properties(cpp_performance_recorder_test PROPERTIES
     ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
 )
 
+add_executable(cpp_runtime_logger_test tests/runtime_logger_test.cpp)
+set_target_properties(cpp_runtime_logger_test PROPERTIES AUTOMOC ON)
+target_link_libraries(cpp_runtime_logger_test PRIVATE eve_viola_cpp_core Qt6::Test)
+add_test(NAME cpp_runtime_logger_test COMMAND cpp_runtime_logger_test)
+set_tests_properties(cpp_runtime_logger_test PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+)
+
 add_executable(eve_viola_performance_probe tools/performance_probe.cpp)
 target_link_libraries(eve_viola_performance_probe PRIVATE eve_viola_cpp_core user32)
 

@@ -102,6 +102,8 @@ enum class PostTriggerAction {
 
 enum class ColorRulePriority { Normal, High, Immediate };
 
+enum class TriggerConditionRelation { And, Or };
+
 struct TriggerCondition {
     QString lowerOperator;
     double lowerValue{0.0};
@@ -140,6 +142,7 @@ struct ColorRule {
     QString note;
     ColorRuleCondition triggerCondition1;
     ColorRuleCondition triggerCondition2;
+    TriggerConditionRelation triggerConditionRelation{TriggerConditionRelation::And};
     TriggerFeedback triggerFeedback{TriggerFeedback::None};
     QString triggerFeedbackAudio;
     PostTriggerAction postTriggerAction{PostTriggerAction::Loop};

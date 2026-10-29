@@ -50,16 +50,18 @@ ColorRulePage::ColorRulePage(QWidget *parent) : QWidget(parent)
     actions->addWidget(deleteButton_);
     layout->addLayout(actions);
 
-    table_ = new QTableWidget(0, 6);
+    table_ = new QTableWidget(0, 7);
     table_->setObjectName(QStringLiteral("colorRuleTable"));
     table_->setHorizontalHeaderLabels({QStringLiteral("编号"), QStringLiteral("备注"),
-                                       QStringLiteral("触发条件 1"), QStringLiteral("触发条件 2"),
+                                       QStringLiteral("触发条件 1"), QStringLiteral("条件关系"),
+                                       QStringLiteral("触发条件 2"),
                                        QStringLiteral("触发反馈"), QStringLiteral("触发后操作")});
     configureTable(table_);
     table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    for (int column = 1; column < 6; ++column) {
+    for (int column = 1; column < table_->columnCount(); ++column) {
         table_->horizontalHeader()->setSectionResizeMode(column, QHeaderView::Stretch);
     }
+    table_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     layout->addWidget(table_, 1);
 
     connect(addButton, &QPushButton::clicked, this, &ColorRulePage::addRequested);
@@ -89,16 +91,17 @@ void ColorRulePage::setRules(const QList<ColorRule> &rules)
         table_->setItem(row, 0, item(QString::number(rule.number)));
         table_->setItem(row, 1, item(rule.note));
         table_->setItem(row, 2, item(rule.triggerCondition1.displayText()));
-        table_->setItem(row, 3, item(rule.triggerCondition2.displayText()));
+        table_->setItem(row, 3, item(triggerConditionRelationName(rule.triggerConditionRelation)));
+        table_->setItem(row, 4, item(rule.triggerCondition2.displayText()));
 
         QString feedbackText = triggerFeedbackName(rule.triggerFeedback);
         if (rule.triggerFeedback == TriggerFeedback::Audio &&
             !rule.triggerFeedbackAudio.isEmpty()) {
             feedbackText = QStringLiteral("播放音频：%1").arg(rule.triggerFeedbackAudio);
         }
-        table_->setItem(row, 4, item(feedbackText));
+        table_->setItem(row, 5, item(feedbackText));
 
-        table_->setItem(row, 5, item(postTriggerActionName(rule.postTriggerAction)));
+        table_->setItem(row, 6, item(postTriggerActionName(rule.postTriggerAction)));
     }
     refreshActionState();
 }

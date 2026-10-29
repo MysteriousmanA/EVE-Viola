@@ -5,6 +5,7 @@
 #include <QActionGroup>
 #include <QCheckBox>
 #include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -119,6 +120,37 @@ class DesktopPetWidgetsTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void petGeometryChangesAreCoalescedAndSavedOnDestruction()
+    {
+        QTemporaryDir directory;
+        DesktopPetSettingsStore store(directory.path());
+        auto page = std::make_unique<DesktopPetPage>(directory.path());
+        auto* pet = findPetWindow();
+        QVERIFY(pet);
+        // Establish the initial snapshot and a recognizable modification time.
+        page->setMode(DesktopPetMode::DoNotDisturb);
+        QFile file(directory.filePath(QStringLiteral("desktopPet.json")));
+        QVERIFY(file.open(QIODevice::ReadWrite));
+        QVERIFY(file.setFileTime(QDateTime(QDate(2000, 1, 1), QTime(0, 0)),
+                                 QFileDevice::FileModificationTime));
+        const auto before = QFileInfo(file).lastModified();
+        file.close();
+        for (int i = 0; i < 20; ++i) {
+            pet->move(100 + i, 200 + i);
+            emit pet->positionChanged(pet->pos());
+        }
+        QCOMPARE(QFileInfo(file).lastModified(), before);
+        QTRY_COMPARE(store.load().settings.value(QStringLiteral("x")).toInt(), pet->x());
+        QCOMPARE(store.load().settings.value(QStringLiteral("y")).toInt(), pet->y());
+
+        pet->move(321, 432);
+        emit pet->positionChanged(pet->pos());
+        const auto finalPosition = pet->pos();
+        page.reset();
+        QCOMPARE(store.load().settings.value(QStringLiteral("x")).toInt(), finalPosition.x());
+        QCOMPARE(store.load().settings.value(QStringLiteral("y")).toInt(), finalPosition.y());
+    }
+
     void contextMenuModesAreExclusiveAndStopIsSeparateFromDisable()
     {
         FloatingPetWindow pet;

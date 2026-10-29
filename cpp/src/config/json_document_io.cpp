@@ -47,11 +47,17 @@ bool writeJsonObject(const QString& path, const QJsonObject& object, QString* er
     if (QFile::exists(path) && previous == object) {
         return true;
     }
+    return writeJsonObjectAtomically(path, object, error);
+}
+
+bool writeJsonObjectAtomically(const QString& path, const QJsonObject& object, QString* error)
+{
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
         return fail(error, QStringLiteral("无法写入配置文件：%1").arg(file.errorString()));
     }
-    if (file.write(QJsonDocument(object).toJson(QJsonDocument::Indented)) < 0) {
+    const auto bytes = QJsonDocument(object).toJson(QJsonDocument::Indented);
+    if (file.write(bytes) != bytes.size()) {
         return fail(error, QStringLiteral("写入配置文件失败：%1").arg(file.errorString()));
     }
     if (!file.commit()) {
