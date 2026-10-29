@@ -1349,7 +1349,8 @@ private slots:
 
         QTRY_COMPARE_WITH_TIMEOUT(window.colorLogicTriggerCount(1), 1, 1500);
 
-        QCOMPARE(state_.activateCount, 1);
+        // Activation runs in a queued callback after the trigger is observed.
+        QTRY_COMPARE_WITH_TIMEOUT(state_.activateCount, 1, 1500);
         QCOMPARE(state_.activatedHwnd, std::uintptr_t{123});
     }
 
