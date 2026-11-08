@@ -198,6 +198,7 @@ void StatisticsCoordinator::stop()
         timer_->stop();
     }
     registrations_.clear();
+    scheduleOriginMs_.reset();
     frameRequests_.clear();
 }
 
@@ -251,30 +252,35 @@ StatisticsDiagnostics StatisticsCoordinator::diagnostics() const noexcept
 void StatisticsCoordinator::rephaseRegistrations()
 {
     if (registrations_.isEmpty()) {
+        scheduleOriginMs_.reset();
         return;
     }
 
-    QList<std::uintptr_t> sources;
-    QHash<std::uintptr_t, int> sourceIntervals;
-    sources.reserve(registrations_.size());
+    baseIntervalMs_ = std::numeric_limits<int>::max();
     for (const auto& registration : std::as_const(registrations_)) {
-        if (!sources.contains(registration.hwnd)) {
-            sources.append(registration.hwnd);
-            sourceIntervals.insert(registration.hwnd, registration.intervalMs);
-        } else {
-            sourceIntervals[registration.hwnd] = std::min(
-                sourceIntervals.value(registration.hwnd), registration.intervalMs);
-        }
+        baseIntervalMs_ = std::min(baseIntervalMs_, registration.intervalMs);
     }
-    std::sort(sources.begin(), sources.end());
 
     const qint64 nowMs = clock_();
+    if (!scheduleOriginMs_) { scheduleOriginMs_ = nowMs; }
     for (auto iterator = registrations_.begin(); iterator != registrations_.end(); ++iterator) {
-        const int sourceIndex = sources.indexOf(iterator->hwnd);
-        const qint64 offset = static_cast<qint64>(sourceIndex)
-            * sourceIntervals.value(iterator->hwnd) / sources.size();
-        iterator->nextDueMs = nowMs + offset;
+        iterator->nextDueMs = alignedDue(iterator->intervalMs,
+            std::max(nowMs, iterator->nextDueMs));
     }
+}
+
+qint64 StatisticsCoordinator::alignedPeriod(int intervalMs) const
+{
+    // Round up: alignment must never increase the configured sample frequency.
+    return ((static_cast<qint64>(intervalMs) + baseIntervalMs_ - 1) / baseIntervalMs_)
+        * baseIntervalMs_;
+}
+
+qint64 StatisticsCoordinator::alignedDue(int intervalMs, qint64 earliestMs) const
+{
+    const qint64 period = alignedPeriod(intervalMs);
+    const qint64 elapsed = std::max<qint64>(0, earliestMs - *scheduleOriginMs_);
+    return *scheduleOriginMs_ + ((elapsed + period - 1) / period) * period;
 }
 
 void StatisticsCoordinator::processDue()
@@ -289,7 +295,7 @@ void StatisticsCoordinator::processDue()
             continue;
         }
         while (iterator->nextDueMs <= nowMs) {
-            iterator->nextDueMs += iterator->intervalMs;
+            iterator->nextDueMs += alignedPeriod(iterator->intervalMs);
             ++diagnostics_.skippedIntervals;
             PerformanceRecorder::record("scheduler.skipped_intervals", 0, iterator->hwnd, 1);
         }
@@ -350,9 +356,8 @@ void StatisticsCoordinator::dispatchBatch(
             continue;
         }
         iterator->inFlight = true;
-        // A delayed request starts a new period; never catch up with an early
-        // follow-up sample, including registrations slower than the source cap.
-        iterator->nextDueMs = nowMs + iterator->intervalMs;
+        // Keep the common phase after late dispatch; missed beats are not replayed.
+        iterator->nextDueMs = alignedDue(iterator->intervalMs, nowMs + 1);
         snapshots.append(Snapshot{id, hwnd, iterator->region, iterator->version, nowMs});
         regions.append(iterator->region);
         if (plannedCapture_) {

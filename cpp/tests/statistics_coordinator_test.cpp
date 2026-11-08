@@ -69,6 +69,91 @@ class StatisticsCoordinatorTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void alignsHarmonicIntervals_data()
+    {
+        QTest::addColumn<bool>("sameSource");
+        QTest::newRow("shared-frame") << true;
+        QTest::newRow("different-sources") << false;
+    }
+
+    void alignsHarmonicIntervals()
+    {
+        QFETCH(bool, sameSource);
+        qint64 nowMs = 137;
+        ManualExecutor executor;
+        QHash<ReplicaId, QList<qint64>> deliveries;
+        StatisticsCoordinator coordinator([&] { return nowMs; },
+            [](std::uintptr_t, const QList<std::optional<QRect>>& regions) {
+                return QList<std::optional<PixelStatistics>>(regions.size(), PixelStatistics{});
+            }, [&](std::function<void()> task) { executor.submit(std::move(task)); });
+        connect(&coordinator, &StatisticsCoordinator::statisticsReady, this,
+            [&](ReplicaId id, qint64, qint64) { deliveries[id].append(nowMs); });
+        coordinator.upsert(1, 77, std::nullopt, 1500);
+        coordinator.upsert(2, sameSource ? 77 : 88, std::nullopt, 3000);
+        coordinator.upsert(3, sameSource ? 77 : 99, std::nullopt, 6000);
+        for (; nowMs <= 12137; nowMs += 100) {
+            coordinator.processDue();
+            while (executor.pendingCount() > 0) {
+                executor.runFirst();
+                coordinator.processDue();
+            }
+        }
+        QCOMPARE(deliveries[1], QList<qint64>({137, 1637, 3137, 4637, 6137, 7637, 9137, 10637, 12137}));
+        QCOMPARE(deliveries[2], QList<qint64>({137, 3137, 6137, 9137, 12137}));
+        QCOMPARE(deliveries[3], QList<qint64>({137, 6137, 12137}));
+        QCOMPARE(coordinator.diagnostics().maximumActiveBatches, sameSource ? 1 : 2);
+    }
+
+    void lateRegistrationAndEditsKeepTheCommonPhase()
+    {
+        qint64 nowMs = 0;
+        ManualExecutor executor;
+        QHash<ReplicaId, QList<qint64>> deliveries;
+        StatisticsCoordinator coordinator([&] { return nowMs; },
+            [](std::uintptr_t, const QList<std::optional<QRect>>& regions) {
+                return QList<std::optional<PixelStatistics>>(regions.size(), PixelStatistics{});
+            }, [&](std::function<void()> task) { executor.submit(std::move(task)); });
+        connect(&coordinator, &StatisticsCoordinator::statisticsReady, this,
+            [&](ReplicaId id, qint64, qint64) { deliveries[id].append(nowMs); });
+        coordinator.upsert(1, 77, std::nullopt, 1500);
+        coordinator.processDue();
+        executor.runFirst();
+        nowMs = 500;
+        coordinator.upsert(2, 77, std::nullopt, 3000);
+        coordinator.upsert(1, 77, QRect(0, 0, 1, 1), 1500);
+        for (; nowMs <= 6000; nowMs += 100) {
+            coordinator.processDue();
+            while (executor.pendingCount() > 0) { executor.runFirst(); }
+        }
+        QCOMPARE(deliveries[1], QList<qint64>({0, 1500, 3000, 4500, 6000}));
+        QCOMPARE(deliveries[2], QList<qint64>({3000, 6000}));
+    }
+
+    void lateCaptureReturnsToTheCommonPhaseAfterCooldown()
+    {
+        qint64 nowMs = 0;
+        ManualExecutor executor;
+        QList<qint64> captures;
+        StatisticsCoordinator coordinator([&] { return nowMs; },
+            [&](std::uintptr_t, const QList<std::optional<QRect>>& regions) {
+                captures.append(nowMs);
+                return QList<std::optional<PixelStatistics>>(regions.size(), PixelStatistics{});
+            }, [&](std::function<void()> task) { executor.submit(std::move(task)); });
+        coordinator.upsert(1, 77, std::nullopt, 3000);
+        coordinator.processDue();
+        executor.runFirst();
+        nowMs = 3200; // Late timer callback; the next period must not start at 6200.
+        coordinator.processDue();
+        executor.runFirst();
+        nowMs = 5999;
+        coordinator.processDue();
+        QCOMPARE(executor.pendingCount(), 0);
+        nowMs = 6000;
+        coordinator.processDue();
+        executor.runFirst();
+        QCOMPARE(captures, QList<qint64>({0, 3200, 6000}));
+    }
+
     void preservesPerReplicaTargetsInPlannedBatches()
     {
         qint64 nowMs = 0;
@@ -250,7 +335,7 @@ private slots:
         QCOMPARE(ready.count(), 0);
         QCOMPARE(idle.count(), 1);
     }
-    void staggersThirtyOneAndAHalfSecondRegistrationsAcrossThePeriod()
+    void alignsThirtyOneAndAHalfSecondRegistrationsToTheSameBeat()
     {
         qint64 nowMs = 0;
         ManualExecutor executor;
@@ -272,11 +357,12 @@ private slots:
             coordinator.processDue();
             while (executor.pendingCount() > 0) {
                 executor.runFirst();
+                coordinator.processDue();
             }
         }
 
         QCOMPARE(captureTimes.size(), 30);
-        QVERIFY(captureTimes.last() - captureTimes.first() >= 1350);
+        QCOMPARE(captureTimes, QList<qint64>(30, 0));
     }
 
     void mergesSameSourceRegionsIntoOneCapture()
@@ -357,7 +443,7 @@ private slots:
             coordinator.processDue();
             while (executor.pendingCount() > 0) { executor.runFirst(); }
         }
-        QCOMPARE(mixedSourceCaptures, QList<qint64>({750, 2250, 3750, 5250}));
+        QCOMPARE(mixedSourceCaptures, QList<qint64>({0, 1500, 3000, 4500}));
         QCOMPARE(batchSizes.first(), 2);
         QCOMPARE(batchSizes.last(), 1);
         QCOMPARE(coordinator.diagnostics().mergedCaptures, quint64{2});

@@ -17,6 +17,7 @@
 #include <QTableWidget>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <algorithm>
 
 namespace {
 QString sourceDisplayName(const QString& title)
@@ -58,6 +59,20 @@ LogicListPage::LogicListPage(QWidget* parent) : QWidget(parent)
     filters->addWidget(new QLabel(QStringLiteral("逻辑名")));
     filters->addWidget(logicFilter_, 1);
     filters->addWidget(resetFilters);
+    auto* collapseAll = new QPushButton(QStringLiteral("全部折叠"));
+    collapseAll->setObjectName(QStringLiteral("collapseAllLogicGroups"));
+    auto* expandAll = new QPushButton(QStringLiteral("全部展开"));
+    expandAll->setObjectName(QStringLiteral("expandAllLogicGroups"));
+    filters->addWidget(collapseAll);
+    filters->addWidget(expandAll);
+    connect(collapseAll, &QPushButton::clicked, this, [this] {
+        for (const auto& group : groups_) { collapsedGroups_.insert(group.key); }
+        applyFilters();
+    });
+    connect(expandAll, &QPushButton::clicked, this, [this] {
+        collapsedGroups_.clear();
+        applyFilters();
+    });
     layout->addLayout(filters);
     connect(sourceFilter_, &QComboBox::currentIndexChanged, this, &LogicListPage::applyFilters);
     connect(logicFilter_, &QComboBox::currentIndexChanged, this, &LogicListPage::applyFilters);
@@ -185,10 +200,50 @@ void LogicListPage::setConfiguration(const QList<ColorRule>& rules,
     }
     sourceFilter_->setCurrentIndex(qMax(0, sourceFilter_->findData(selectedSourceFilter)));
     logicFilter_->setCurrentIndex(qMax(0, logicFilter_->findData(selectedLogicFilter)));
+    groups_.clear();
+    QHash<QString, int> groupIndices;
+    for (int index = 0; index < bindings.size(); ++index) {
+        const auto& binding = bindings[index];
+        // Keep the group stable when a source disappears or restarts.
+        const auto key = binding.sourceProcessName.toCaseFolded()
+            + QChar(0) + binding.sourceTitle;
+        auto groupIndex = groupIndices.value(key, -1);
+        if (groupIndex < 0) {
+            groupIndex = groups_.size();
+            groupIndices.insert(key, groupIndex);
+            groups_.append({key, binding.sourceTitle, {}});
+        }
+        groups_[groupIndex].bindings.append(index);
+    }
+    std::stable_sort(groups_.begin(), groups_.end(), [](const auto& left, const auto& right) {
+        if (left.title.isEmpty() != right.title.isEmpty()) { return !left.title.isEmpty(); }
+        return QString::compare(sourceDisplayName(left.title), sourceDisplayName(right.title),
+            Qt::CaseInsensitive) < 0;
+    });
+    table_->clearSpans();
     table_->setRowCount(0);
-    table_->setRowCount(bindings.size());
-    for (int row = 0; row < bindings.size(); ++row) {
-        const auto binding = bindings[row];
+    table_->setRowCount(bindings.size() + groups_.size());
+    bindingRows_.resize(bindings.size());
+    int nextRow = 0;
+    for (auto& group : groups_) {
+        group.headerRow = nextRow++;
+        table_->setSpan(group.headerRow, 0, 1, table_->columnCount());
+        group.toggle = new QPushButton;
+        group.toggle->setObjectName(QStringLiteral("logicSourceGroupToggle"));
+        group.toggle->setProperty("sourceTitle", group.title);
+        group.toggle->setProperty("groupKey", group.key);
+        group.toggle->setStyleSheet(QStringLiteral("text-align: left; font-weight: bold; padding: 6px 10px;"));
+        table_->setCellWidget(group.headerRow, 0, group.toggle);
+        connect(group.toggle, &QPushButton::clicked, this, [this, key = group.key] {
+            if (collapsedGroups_.contains(key)) { collapsedGroups_.remove(key); }
+            else { collapsedGroups_.insert(key); }
+            applyFilters();
+        });
+        for (const int index : group.bindings) { bindingRows_[index] = nextRow++; }
+    }
+    for (int index = 0; index < bindings.size(); ++index) {
+        const int row = bindingRows_[index];
+        const auto binding = bindings[index];
         auto* enabled = new QCheckBox;
         enabled->setObjectName(QStringLiteral("logicBindingEnabled_%1").arg(binding.id));
         enabled->setChecked(binding.enabled);
@@ -231,9 +286,22 @@ void LogicListPage::applyFilters()
 {
     const auto source = sourceFilter_->currentData();
     const int ruleNumber = logicFilter_->currentData().toInt();
-    for (int row = 0; row < lastBindings_.size(); ++row) {
-        const auto& binding = lastBindings_[row];
-        table_->setRowHidden(row, (source.isValid() && binding.sourceTitle != source.toString())
-            || (ruleNumber > 0 && binding.ruleNumber != ruleNumber));
+    for (const auto& group : groups_) {
+        const bool collapsed = collapsedGroups_.contains(group.key);
+        int matching = 0;
+        for (const int index : group.bindings) {
+            const auto& binding = lastBindings_[index];
+            const bool matches = (!source.isValid() || binding.sourceTitle == source.toString())
+                && (ruleNumber <= 0 || binding.ruleNumber == ruleNumber);
+            if (matches) { ++matching; }
+            table_->setRowHidden(bindingRows_[index], !matches || collapsed);
+        }
+        table_->setRowHidden(group.headerRow, matching == 0);
+        group.toggle->setText(QStringLiteral("%1 %2 · %3 条逻辑")
+            .arg(collapsed ? QStringLiteral("▶") : QStringLiteral("▼"),
+                group.title.isEmpty() ? QStringLiteral("未选择源窗口") : sourceDisplayName(group.title))
+            .arg(matching));
+        group.toggle->setToolTip(collapsed ? QStringLiteral("展开该源窗口的逻辑")
+            : QStringLiteral("折叠该源窗口的逻辑"));
     }
 }

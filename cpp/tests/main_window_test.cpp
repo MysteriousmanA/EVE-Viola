@@ -63,6 +63,14 @@
 #endif
 
 namespace {
+int logicDataRow(QTableWidget* table, int index)
+{
+    for (int row = 0; row < table->rowCount(); ++row) {
+        if (qobject_cast<QCheckBox*>(table->cellWidget(row, 0)) && index-- == 0) { return row; }
+    }
+    return -1;
+}
+
 
 class ControlledLogicAudioChannel final : public AudioChannelBackend {
 public:
@@ -407,9 +415,9 @@ private slots:
             emit page->addForSourcesRequested(1, {{123, "EVE - A"}, {456, "EVE - B"}});
             QCoreApplication::processEvents();
             auto* table = page->findChild<QTableWidget*>(QStringLiteral("logicBindingTable"));
-            QCOMPARE(table->rowCount(), 2);
+            QCOMPARE(table->rowCount(), 4);
             for (int row = 0; row < 2; ++row) {
-                QVERIFY(table->item(row, 3)->text().contains(QStringLiteral("已绑定")));
+                QVERIFY(table->item(logicDataRow(table, row), 3)->text().contains(QStringLiteral("已绑定")));
             }
             manager.close();
         }
@@ -556,11 +564,11 @@ private slots:
         page->findChild<QPushButton*>(QStringLiteral("addLogicBinding"))->click();
         QCoreApplication::processEvents();
         auto* table = page->findChild<QTableWidget*>(QStringLiteral("logicBindingTable"));
-        QCOMPARE(table->rowCount(), 1);
-        auto* source = qobject_cast<QComboBox*>(table->cellWidget(0, 2)); QVERIFY(source);
+        QCOMPARE(table->rowCount(), 2);
+        auto* source = qobject_cast<QComboBox*>(table->cellWidget(logicDataRow(table, 0), 2)); QVERIFY(source);
         source->setCurrentIndex(1); emit source->activated(1);
         QCoreApplication::processEvents();
-        QVERIFY(table->item(0, 3)->text().contains(QStringLiteral("已绑定")));
+        QVERIFY(table->item(logicDataRow(table, 0), 3)->text().contains(QStringLiteral("已绑定")));
         manager.close();
         AppConfig saved; QVERIFY2(store.load(saved, &error), qPrintable(error));
         QCOMPARE(saved.logicBindings.size(), 1);
@@ -585,7 +593,7 @@ private slots:
         auto* sourceFilter = page.findChild<QComboBox*>(QStringLiteral("logicSourceFilter"));
         auto* logicFilter = page.findChild<QComboBox*>(QStringLiteral("logicNameFilter"));
         QVERIFY(sourceFilter); QVERIFY(logicFilter);
-        auto* source = qobject_cast<QComboBox*>(table->cellWidget(0, 2)); QVERIFY(source);
+        auto* source = qobject_cast<QComboBox*>(table->cellWidget(logicDataRow(table, 0), 2)); QVERIFY(source);
         QCOMPARE(source->currentText(), QStringLiteral("Alice"));
         QVERIFY(!source->currentText().contains(QStringLiteral("EVE - ")));
         QCOMPARE(source->currentData().value<WindowInfo>().title, a.sourceTitle);
@@ -596,25 +604,70 @@ private slots:
         QCOMPARE(changed.first()[1].value<WindowInfo>().title, c.sourceTitle);
         QCOMPARE(sourceFilter->itemText(sourceFilter->findData(a.sourceTitle)), QStringLiteral("Alice"));
         sourceFilter->setCurrentIndex(sourceFilter->findData(a.sourceTitle));
-        QVERIFY(!table->isRowHidden(0)); QVERIFY(!table->isRowHidden(1)); QVERIFY(table->isRowHidden(2));
+        QVERIFY(!table->isRowHidden(logicDataRow(table, 0))); QVERIFY(!table->isRowHidden(logicDataRow(table, 1))); QVERIFY(table->isRowHidden(logicDataRow(table, 2)));
         logicFilter->setCurrentIndex(logicFilter->findData(2));
-        QVERIFY(table->isRowHidden(0)); QVERIFY(!table->isRowHidden(1));
+        QVERIFY(table->isRowHidden(logicDataRow(table, 0))); QVERIFY(!table->isRowHidden(logicDataRow(table, 1)));
         page.setConfiguration({warning, reverse}, bindings, {}, {{"a", QStringLiteral("失联")}});
         QCOMPARE(sourceFilter->currentData().toString(), a.sourceTitle);
         QCOMPARE(logicFilter->currentData().toInt(), 2);
-        QVERIFY(table->isRowHidden(0)); QVERIFY(!table->isRowHidden(1));
-        source = qobject_cast<QComboBox*>(table->cellWidget(0, 2));
+        QVERIFY(table->isRowHidden(logicDataRow(table, 0))); QVERIFY(!table->isRowHidden(logicDataRow(table, 1)));
+        source = qobject_cast<QComboBox*>(table->cellWidget(logicDataRow(table, 0), 2));
         QCOMPARE(source->currentText(), QStringLiteral("暂未找到 · Alice"));
         page.findChild<QPushButton*>(QStringLiteral("resetLogicFilters"))->click();
         for (int row = 0; row < table->rowCount(); ++row) { QVERIFY(!table->isRowHidden(row)); }
         sourceFilter->setCurrentIndex(sourceFilter->findData(QStringLiteral("")));
-        QVERIFY(table->isRowHidden(0)); QVERIFY(!table->isRowHidden(3));
+        QVERIFY(table->isRowHidden(logicDataRow(table, 0))); QVERIFY(!table->isRowHidden(logicDataRow(table, 3)));
         sourceFilter->setCurrentIndex(0);
         logicFilter->setCurrentIndex(logicFilter->findData(1));
-        QVERIFY(!table->isRowHidden(0)); QVERIFY(table->isRowHidden(1)); QVERIFY(!table->isRowHidden(2));
+        QVERIFY(!table->isRowHidden(logicDataRow(table, 0))); QVERIFY(table->isRowHidden(logicDataRow(table, 1))); QVERIFY(!table->isRowHidden(logicDataRow(table, 2)));
         page.setConfiguration({warning}, {a}, sources, {});
         QCOMPARE(logicFilter->currentData().toInt(), 1);
+        QVERIFY(!table->isRowHidden(logicDataRow(table, 0)));
+    }
+
+    void logicListGroupsCollapseAndRetainStateAcrossRefresh()
+    {
+        LogicListPage page;
+        ColorRule warning; warning.number = 1;
+        ColorRule reverse; reverse.number = 2;
+        LogicBindingConfig a; a.id = "a"; a.ruleNumber = 1; a.sourceTitle = "EVE - Alice";
+        LogicBindingConfig b = a; b.id = "b"; b.ruleNumber = 2;
+        LogicBindingConfig c = a; c.id = "c"; c.sourceTitle = "EVE - Bob";
+        const QList<LogicBindingConfig> bindings{c, a, b};
+        const QList<WindowInfo> sources{{123, a.sourceTitle}, {456, c.sourceTitle}};
+        page.setConfiguration({warning, reverse}, bindings, sources, {});
+        auto* table = page.findChild<QTableWidget*>(QStringLiteral("logicBindingTable"));
+        QCOMPARE(table->rowCount(), 5);
+        auto* alice = qobject_cast<QPushButton*>(table->cellWidget(0, 0));
+        auto* bob = qobject_cast<QPushButton*>(table->cellWidget(3, 0));
+        QVERIFY(alice); QVERIFY(bob);
+        QVERIFY(alice->text().contains(QStringLiteral("Alice · 2 条逻辑")));
+        QVERIFY(bob->text().contains(QStringLiteral("Bob · 1 条逻辑")));
+        alice->click();
         QVERIFY(!table->isRowHidden(0));
+        QVERIFY(table->isRowHidden(1)); QVERIFY(table->isRowHidden(2));
+        QVERIFY(!table->isRowHidden(4));
+        auto* filter = page.findChild<QComboBox*>(QStringLiteral("logicNameFilter"));
+        filter->setCurrentIndex(filter->findData(2));
+        QVERIFY(alice->text().contains(QStringLiteral("1 条逻辑")));
+        QVERIFY(table->isRowHidden(3)); QVERIFY(table->isRowHidden(4));
+        // Status updates and a temporarily missing source must not expand a group.
+        page.setConfiguration({warning, reverse}, bindings, {}, {{"a", QStringLiteral("失联")}});
+        QVERIFY(table->isRowHidden(1)); QVERIFY(table->isRowHidden(2));
+        alice = qobject_cast<QPushButton*>(table->cellWidget(0, 0));
+        alice->click();
+        QVERIFY(table->isRowHidden(1)); QVERIFY(!table->isRowHidden(2));
+        page.findChild<QPushButton*>(QStringLiteral("resetLogicFilters"))->click();
+        page.findChild<QPushButton*>(QStringLiteral("collapseAllLogicGroups"))->click();
+        QVERIFY(table->isRowHidden(1)); QVERIFY(table->isRowHidden(2));
+        QVERIFY(table->isRowHidden(4));
+        page.findChild<QPushButton*>(QStringLiteral("expandAllLogicGroups"))->click();
+        for (int row = 0; row < table->rowCount(); ++row) { QVERIFY(!table->isRowHidden(row)); }
+        QSignalSpy enabled(&page, &LogicListPage::enabledChanged);
+        auto* check = page.findChild<QCheckBox*>(QStringLiteral("logicBindingEnabled_b"));
+        QVERIFY(check); check->click();
+        QCOMPARE(enabled.size(), 1); QCOMPARE(enabled.first()[0].toString(), b.id);
+        QCOMPARE(enabled.first()[1].toBool(), false);
     }
 
     void logicListReusesExistingWindowsAndPersistsFineTuning()
@@ -650,7 +703,7 @@ private slots:
             QCoreApplication::processEvents();
             QCOMPARE(manager.replicaWindows().size(), 1);
             auto* table = page->findChild<QTableWidget*>(QStringLiteral("logicBindingTable"));
-            auto* source = qobject_cast<QComboBox*>(table->cellWidget(1, 2)); QVERIFY(source);
+            auto* source = qobject_cast<QComboBox*>(table->cellWidget(logicDataRow(table, 1), 2)); QVERIFY(source);
             source->setCurrentIndex(1); emit source->activated(1);
             QCoreApplication::processEvents();
             QCOMPARE(manager.replicaWindows().size(), 1);
@@ -670,7 +723,7 @@ private slots:
                 std::optional<QRect>(QRect(0, 0, 1, 1)));
             auto* page = manager.findChild<LogicListPage*>();
             auto* table = page->findChild<QTableWidget*>(QStringLiteral("logicBindingTable"));
-            auto* source = qobject_cast<QComboBox*>(table->cellWidget(1, 2)); QVERIFY(source);
+            auto* source = qobject_cast<QComboBox*>(table->cellWidget(logicDataRow(table, 1), 2)); QVERIFY(source);
             source->setCurrentIndex(2); emit source->activated(2);
             QCoreApplication::processEvents();
             QCOMPARE(manager.replicaWindows().size(), 2);

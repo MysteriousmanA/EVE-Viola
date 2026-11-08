@@ -111,6 +111,8 @@ private:
 
     void initialize();
     void rephaseRegistrations();
+    [[nodiscard]] qint64 alignedPeriod(int intervalMs) const;
+    [[nodiscard]] qint64 alignedDue(int intervalMs, qint64 earliestMs) const;
     void dispatchBatch(std::uintptr_t hwnd, const QList<ReplicaId>& ids, qint64 nowMs);
     void completeBatch(
         std::uintptr_t hwnd,
@@ -138,6 +140,8 @@ private:
     QTimer* timer_{};
     StatisticsDiagnostics diagnostics_;
     quint64 nextVersion_{1};
+    std::optional<qint64> scheduleOriginMs_;
+    int baseIntervalMs_{};
     bool running_{false};
     bool ownsExecutor_{false};
 };

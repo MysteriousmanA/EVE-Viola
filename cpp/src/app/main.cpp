@@ -21,7 +21,7 @@ int main(int argc, char* argv[])
 {
     QApplication application(argc, argv);
     QApplication::setApplicationName(QStringLiteral("EVE-Viola"));
-    QApplication::setApplicationVersion(QStringLiteral("1.1.1"));
+    QApplication::setApplicationVersion(QStringLiteral("1.2.0"));
     QApplication::setApplicationDisplayName(QStringLiteral("EVE-Viola"));
     QApplication::setOrganizationName(QStringLiteral("EVE-Viola"));
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/viola.png")));
