@@ -1,3 +1,4 @@
+#include "ui/common/editor_dialogs.h"
 #include "ui/pixel_color_editor.h"
 
 #include <QColorDialog>
@@ -56,7 +57,7 @@ PixelColorEditor::PixelColorEditor(const PixelColorTarget& initial, bool allowNo
     connect(combo_, &QComboBox::currentTextChanged, this, updateState);
     connect(choose, &QPushButton::clicked, this, [this] {
         const auto initialColor = pixelColorValue(combo_->currentText().trimmed());
-        const auto color = QColorDialog::getColor(
+        const auto color = EditorDialogs::getColor(
             initialColor.isValid() ? initialColor : QColor(Qt::green), this,
             QStringLiteral("选择统计颜色"));
         if (color.isValid()) { combo_->setCurrentText(color.name()); }
@@ -81,7 +82,7 @@ std::optional<PixelColorTarget> PixelColorEditor::target() const
 std::optional<QList<PixelColorTarget>> promptStatisticsColors(
     QWidget* parent, const QList<PixelColorTarget>& targets)
 {
-    QDialog dialog(parent);
+    EditorDialogs::Dialog dialog(parent);
     dialog.setObjectName(QStringLiteral("statisticsColorsDialog"));
     dialog.setWindowTitle(QStringLiteral("设置统计颜色"));
     dialog.resize(610, 330);
@@ -134,6 +135,13 @@ std::optional<QList<PixelColorTarget>> promptStatisticsColors(
                 QMessageBox::warning(&dialog, QStringLiteral("颜色无效"),
                                      QStringLiteral("请选择预设颜色或输入有效的 #RRGGBB 色值。"));
                 return;
+            }
+            for (const auto& existing : result) {
+                if (existing.color == target->color) {
+                    QMessageBox::warning(&dialog, QStringLiteral("颜色重复"),
+                        QStringLiteral("同一种颜色只能设置一个容差，请修改或删除重复颜色。"));
+                    return;
+                }
             }
             result.append(*target);
         }

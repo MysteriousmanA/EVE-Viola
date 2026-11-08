@@ -30,7 +30,6 @@ public:
 
     [[nodiscard]] ReplicaId replicaId() const noexcept;
     [[nodiscard]] int colorLogicSlotRule(int slotIndex) const noexcept;
-    [[nodiscard]] bool sourceNameVisible() const noexcept;
     [[nodiscard]] bool visibilityChecked() const noexcept;
     [[nodiscard]] bool collapsed() const noexcept;
     [[nodiscard]] QString currentRegionPresetName() const noexcept;
@@ -40,6 +39,7 @@ public:
 
 public slots:
     void setSourceTitle(const QString& title);
+    void setColorLogicSummary(const QString& text);
     void setSourceWindow(const WindowInfo& window);
     void setSourceOptions(const QList<WindowInfo>& windows);
     void setCaptureRegion(const QString& description);
@@ -57,7 +57,6 @@ public slots:
     void setColorLogicEnabled(bool enabled);
     void setActiveColorLogicSlot(int slotIndex);
     void setVisibilityChecked(bool visible);
-    void setSourceNameVisible(bool visible);
     void setColorLogicSlotColor(int slotIndex, const QColor& color);
     void setStatisticsInterval(int milliseconds);
     void setCollapsed(bool collapsed);
@@ -76,9 +75,9 @@ signals:
     void statisticsIntervalChanged(int milliseconds);
     void statisticsColorsChanged(const QList<PixelColorTarget>& colors);
     void replicaVisibilityChanged(bool visible);
-    void sourceNameVisibilityChanged(bool visible);
     void saveRegionPresetRequested();
     void regionRecaptureRequested();
+    void regionPresetNameChanged();
     void sourceSelectionRequested(const WindowInfo& window);
     void sourceOptionsRequested();
     void regionEditRequested(const QRect& region);
@@ -121,6 +120,7 @@ private:
 
     ReplicaId replicaId_{};
     QLabel* badge_{};
+    QLabel* colorLogicSummary_{};
     QWidget* sourceCell_{};
     QWidget* sourceDetails_{};
     QLabel* groupCountLabel_{};
@@ -148,7 +148,7 @@ private:
     QWidget* syncActionRow_{};
     bool collapsed_{false};
     QWidget* pixelStatisticsHost_{};
-    QPushButton* statisticsColorsButton_{};
+    QLabel* collapsedPixelStatistics_{};
     QList<QLabel*> pixelStatisticsLabels_;
     std::optional<PixelStatistics> latestStatistics_;
     QList<qsizetype> displayedStatisticsCounts_;
@@ -163,7 +163,6 @@ private:
     QColor slotColorA_{QColor(46, 204, 64)};
     QColor slotColorB_{QColor(41, 121, 255)};
     QCheckBox* visibilityCheckBox_{};
-    QCheckBox* sourceNameVisibilityCheckBox_{};
     QPushButton* savePresetButton_{};
     QPushButton* regionRecaptureButton_{};
     QList<ColorRule> colorRules_;

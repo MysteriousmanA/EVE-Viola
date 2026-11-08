@@ -1,4 +1,5 @@
 #include <exception>
+#include <memory>
 
 #include <QApplication>
 #include <QCommandLineOption>
@@ -106,12 +107,14 @@ int main(int argc, char* argv[])
 
     QString configPath = QCoreApplication::applicationDirPath()
         + QStringLiteral("/cache");
-    QTemporaryDir smokeConfigDirectory;
+    std::unique_ptr<QTemporaryDir> smokeConfigDirectory;
     if (smoke) {
-        if (!smokeConfigDirectory.isValid()) {
+        smokeConfigDirectory = std::make_unique<QTemporaryDir>(
+            QCoreApplication::applicationDirPath() + QStringLiteral("/.smoke-XXXXXX"));
+        if (!smokeConfigDirectory->isValid()) {
             return 3;
         }
-        configPath = smokeConfigDirectory.path();
+        configPath = smokeConfigDirectory->path();
     }
 
     try {

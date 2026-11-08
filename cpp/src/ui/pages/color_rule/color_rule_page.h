@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <QHash>
 
 #include <QWidget>
 
@@ -20,9 +21,13 @@ class ColorRulePage final : public QWidget
   public:
     explicit ColorRulePage(QWidget *parent = nullptr);
     void setRules(const QList<ColorRule> &rules);
+    void setReplicas(const QList<ReplicaConfig>& replicas, const QHash<QString, QString>& presetNames = {}) {
+        replicas_ = replicas; presetNames_ = presetNames;
+    }
 
   signals:
     void addRequested();
+    void colorTolerancesRequested();
     void editRequested(int number);
     void deleteRequested(int number);
 
@@ -31,6 +36,8 @@ class ColorRulePage final : public QWidget
     void refreshActionState();
 
     QTableWidget *table_{};
+    QList<ReplicaConfig> replicas_;
+    QHash<QString, QString> presetNames_;
     QPushButton *editButton_{};
     QPushButton *deleteButton_{};
 };

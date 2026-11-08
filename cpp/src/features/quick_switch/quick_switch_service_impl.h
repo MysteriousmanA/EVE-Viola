@@ -123,6 +123,8 @@ struct QuickSwitchService::Impl {
     std::array<std::atomic<bool>, kKeyboardIdentityCount> captureIgnoreUntilUp{};
     std::atomic<bool> captureArmed{false};
     std::atomic<bool> radialCancelRequested{false};
+    std::atomic<quintptr> continuedRadialForeground{0};
+    std::atomic<quint64> continuedRadialSession{0};
     quint64 nextRadialSessionId{1};
     std::thread thread;
     std::atomic<DWORD> threadId{0};

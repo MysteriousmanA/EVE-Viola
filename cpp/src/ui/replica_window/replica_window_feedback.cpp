@@ -43,7 +43,7 @@ void ReplicaWindow::setDesktopPetMode(DesktopPetMode mode)
     }
     desktopPetMode_ = mode;
     audioFeedbackEnabled_ = mode == DesktopPetMode::Resident;
-    cancelAdvancedLogic();
+    colorLogicEngine_.resetNotificationObservation();
     gateway_.cancelAutomaticActivation(replicaId_);
     applyColorLogicEffects(colorLogicEngine_.resetPendingFeedback());
     if (mode != DesktopPetMode::Resident) { setVisible(false); }
@@ -111,5 +111,4 @@ void ReplicaWindow::applyColorLogicEffects(const QList<ColorLogicEffect>& effect
             break;
         }
     }
-    drainAdvancedLogic();
 }

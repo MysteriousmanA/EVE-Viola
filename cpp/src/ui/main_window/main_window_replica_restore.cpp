@@ -2,8 +2,10 @@
 
 #include <optional>
 #include <QCoreApplication>
+#include <QComboBox>
 #include <QScopedValueRollback>
 #include <QTimer>
+#include <QUuid>
 #include "features/region_preset/preset_service.h"
 #include "platform/window_catalog.h"
 #include "ui/replica_row.h"
@@ -24,7 +26,11 @@ void MainWindow::rebuildReplicas()
         window->close();
     }
     QCoreApplication::processEvents();
+    config_.replicas = synchronizeLogicBindingReplicas(config_.replicas, false);
     restoreConfiguredReplicas();
+    config_.replicas = synchronizeLogicBindingReplicas(replicaController_.snapshot(), true);
+    refreshLogicBindings();
+    schedulePersistReplicas();
     refreshReplicaFilters();
     refreshReplicaGroups();
 }
@@ -32,7 +38,7 @@ void MainWindow::rebuildReplicas()
 void MainWindow::setupGameRestoreMonitoring()
 {
     windowCatalog_->setMonitoring(config_.restoreWindowsWithGame
-        || config_.pagePartition.onlyShowWhenEveDetected);
+        || config_.pagePartition.onlyShowWhenEveDetected || !config_.logicBindings.isEmpty());
     if (config_.restoreWindowsWithGame) {
         QTimer::singleShot(0, this, &MainWindow::restorePendingGameWindows);
     }
@@ -127,17 +133,23 @@ ReplicaWindow* MainWindow::restoreReplica(
     const QScopedValueRollback restoring(restoringReplicas_, true);
     auto* window = createReplica(availableWindows);
     const QPoint defaultPosition = window->pos();
-    replicaController_.setDesiredConfig(window->replicaId(), config);
+    auto desiredConfig = config;
+    if (desiredConfig.id.isEmpty() || useDefaultPosition) {
+        desiredConfig.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    }
+    replicaController_.setDesiredConfig(window->replicaId(), desiredConfig);
     auto* row = rows_.value(window->replicaId());
     if (row == nullptr) {
         return nullptr;
     }
-    row->setColorLogicSlotColor(1, config.slotColor1);
-    row->setColorLogicSlotColor(2, config.slotColor2);
-    row->setColorLogicSlot(1, config.colorLogicSlotRule[0]);
-    row->setColorLogicSlot(2, config.colorLogicSlotRule[1]);
-    row->setColorLogicEnabled(config.colorLogicEnabled);
-    row->setActiveColorLogicSlot(config.activeColorLogicSlot);
+    for (const auto& binding : config_.logicBindings) {
+        const auto prefix = QStringLiteral("logic:%1:").arg(binding.id);
+        if (config.id.startsWith(prefix)) {
+            row->sourceCombo()->setEnabled(false);
+            row->sourceCombo()->setToolTip(QStringLiteral("源窗口由逻辑列表统一管理"));
+            break;
+        }
+    }
     // Do not let a half-restored window enter the capture worker.
     window->setStatisticsInterval(kStatisticsIntervalDisabledMs);
     row->setStatisticsColors(config.statisticsColors);
@@ -153,7 +165,6 @@ ReplicaWindow* MainWindow::restoreReplica(
     if (config.capturedRegion.isValid() && !config.capturedRegion.isEmpty()) {
         window->setCapturedRegion(config.capturedRegion);
     }
-    row->setSourceNameVisible(config.sourceNameVisible);
     row->setVisibilityChecked(config.visible);
     row->setCollapsed(config.collapsed);
     if (config.size.isValid() && !config.size.isEmpty()) {
@@ -180,6 +191,7 @@ ReplicaWindow* MainWindow::restoreReplica(
                 retryReplicaRegionRestore(id, kRegionRestoreRetryCount);
             });
     }
+    refreshColorLogicWindows();
     return window;
 }
 
@@ -211,5 +223,6 @@ void MainWindow::restoreConfiguredReplicas()
         statisticsCoordinator_->start();
     }
     restoringReplicas_ = false;
+    refreshColorLogicWindows();
     refreshSummary();
 }

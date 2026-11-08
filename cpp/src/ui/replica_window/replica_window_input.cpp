@@ -16,6 +16,7 @@ void ReplicaWindow::initializeInput()
     middlePressTimer_->setSingleShot(true);
     middlePressTimer_->setInterval(kMiddlePressLongMs);
     connect(middlePressTimer_, &QTimer::timeout, this, [this] {
+        if (globalColorLogicManaged_) { return; }
         middleLongPressHandled_ = true;
         setColorLogicEnabled(!colorLogicEngine_.enabled());
         emit colorLogicEnabledChanged(colorLogicEngine_.enabled());
@@ -96,7 +97,8 @@ void ReplicaWindow::mouseReleaseEvent(QMouseEvent* event)
     if (event->button() == Qt::MiddleButton) {
         if (middlePressTimer_->isActive()) {
             middlePressTimer_->stop();
-            toggleActiveColorLogicSlot();
+            if (globalColorLogicManaged_) { emit sharedLogicToggleRequested(); }
+            else { toggleActiveColorLogicSlot(); }
         }
         middleLongPressHandled_ = false;
         event->accept();

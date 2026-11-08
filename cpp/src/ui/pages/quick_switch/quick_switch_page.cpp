@@ -19,6 +19,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSignalBlocker>
+#include <QSpinBox>
 #include <QSet>
 #include <QTableWidget>
 #include <QToolButton>
@@ -83,8 +84,9 @@ QuickSwitchPage::QuickSwitchPage(QWidget *parent) : QWidget(parent)
         QStringLiteral("EVE 客户端处于前台时，使用所选按键或鼠标侧键切换客户端。") +
         QStringLiteral(
             "点击“监听以选择”后按下任意单个键盘键或鼠标侧键；再次点击或切离页面可取消。") +
-        QStringLiteral("长按圆盘按键 300ms "
-                       "呼出账号圆盘，移动鼠标高亮后松开切换；短按会在松开时回放原按键。")));
+        QStringLiteral("长按圆盘按键 300ms 后，自动切入最近 10 秒内触发图色逻辑且近期未查看的账号；"
+                       "多个账号同时满足时显示圆盘及触发逻辑，移动鼠标高亮后松开切换。"
+                       "持续按住可等待新触发；短按会在松开时回放原按键。")));
 
     auto *previousGroup = new QGroupBox(QStringLiteral("上一个客户端"), this);
     auto *previousLayout = new QGridLayout(previousGroup);
@@ -159,12 +161,22 @@ QuickSwitchPage::QuickSwitchPage(QWidget *parent) : QWidget(parent)
     radialKeyLabel_->setMinimumWidth(90);
     radialLayout->addWidget(new QLabel(QStringLiteral("长按按键："), radialGroup));
     radialLayout->addWidget(radialKeyLabel_);
+    radialLayout->addWidget(new QLabel(QStringLiteral("最近查看排除时间："), radialGroup));
+    radialRecentSeconds_ = new QSpinBox(radialGroup);
+    radialRecentSeconds_->setObjectName(QStringLiteral("radialSwitchRecentSeconds"));
+    radialRecentSeconds_->setRange(1, 3600);
+    radialRecentSeconds_->setValue(10);
+    radialRecentSeconds_->setSuffix(QStringLiteral(" 秒"));
+    radialRecentSeconds_->setToolTip(QStringLiteral("当前前台及此时间内查看过的账号不参与长按切号"));
+    radialLayout->addWidget(radialRecentSeconds_);
+    connect(radialRecentSeconds_, &QSpinBox::valueChanged,
+        this, &QuickSwitchPage::radialSwitchRecentSecondsChanged);
     radialLayout->addStretch(1);
     radialListenButton_ = new QPushButton(QStringLiteral("监听以选择"), radialGroup);
     radialListenButton_->setObjectName(QStringLiteral("listenRadialSwitchKey"));
     radialListenButton_->setCheckable(true);
     radialListenButton_->setToolTip(
-        QStringLiteral("监听单个键盘键；短按会在松开时回放原按键，按住 300ms 呼出账号圆盘"));
+        QStringLiteral("监听单个键盘键；短按回放原按键，长按切入触发账号，多个候选时显示圆盘"));
     radialLayout->addWidget(radialListenButton_);
     connect(radialListenButton_, &QPushButton::clicked, this, [this](bool checked) {
         if (checked) {
@@ -235,6 +247,12 @@ QuickSwitchPage::~QuickSwitchPage()
     finishListening();
 }
 
+void QuickSwitchPage::setRadialSwitchRecentSeconds(int seconds)
+{
+    const QSignalBlocker blocker(radialRecentSeconds_);
+    radialRecentSeconds_->setValue(qBound(1, seconds, 3600));
+}
+
 void QuickSwitchPage::beginListening(bool previousDirection)
 {
     if (activeListenButton_ != nullptr) {
@@ -282,7 +300,7 @@ void QuickSwitchPage::finishListening()
     button->setText(QStringLiteral("监听以选择"));
     button->setToolTip(
         wasListeningRadialKey
-            ? QStringLiteral("监听单个键盘键；短按会在松开时回放原按键，按住 300ms 呼出账号圆盘")
+            ? QStringLiteral("监听单个键盘键；短按回放原按键，长按切入触发账号，多个候选时显示圆盘")
             : QStringLiteral("监听任意单个键盘键或鼠标侧键；再次点击此按钮可取消"));
     const QSignalBlocker blocker(button);
     button->setChecked(false);

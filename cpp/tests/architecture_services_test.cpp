@@ -1,10 +1,14 @@
 #include <stdexcept>
 #include <QtTest>
+#include <QSemaphore>
+#include <QScopeGuard>
+#include <atomic>
 #include "app/activation_coordinator.h"
 #include "features/region_preset/preset_service.h"
 #include "features/replica/replica_controller.h"
 #include "runtime/runtime_policy.h"
 #include "platform/window_catalog.h"
+#include "platform/native_gateway.h"
 
 namespace {
 class Replica final : public CloseableReplica {
@@ -25,6 +29,54 @@ ReplicaId create(ReplicaController& controller, int& closed)
 class ArchitectureServicesTest final : public QObject {
     Q_OBJECT
 private slots:
+    void failedBackgroundActivationCanRecover()
+    {
+        std::atomic<int> calls{};
+        ActivationCoordinator coordinator([&](std::uintptr_t hwnd) {
+            if (++calls == 1) { throw NativeException(QStringLiteral("test"), -1); }
+            return hwnd;
+        });
+        coordinator.queueAutomaticActivation(1, 3, 10000);
+        coordinator.flushAutomaticActivationsAsync();
+        QTRY_VERIFY(coordinator.automaticActivation_.isFinished());
+        // A failed attempt cannot start the successful-activation cooldown.
+        coordinator.queueAutomaticActivation(1, 3, 10000);
+        coordinator.flushAutomaticActivationsAsync();
+        QTRY_VERIFY(coordinator.automaticActivation_.isFinished());
+        QCOMPARE(calls.load(), 2);
+    }
+    void automaticActivationDoesNotBlockTheEventLoopOrOverlap()
+    {
+        QSemaphore release;
+        std::atomic<int> calls{};
+        std::atomic<std::int64_t> now{1000};
+        ActivationCoordinator coordinator([&](std::uintptr_t hwnd) {
+            ++calls;
+            release.acquire();
+            return hwnd;
+        }, [&] { return now.load(); });
+        // Release a blocked worker even if a test assertion returns early.
+        const auto unblock = qScopeGuard([&] { release.release(2); });
+        coordinator.queueAutomaticActivation(1, 3, 500);
+        coordinator.flushAutomaticActivationsAsync();
+        bool eventDelivered = false;
+        QTimer::singleShot(0, [&] { eventDelivered = true; });
+        QTRY_VERIFY(eventDelivered && calls.load() == 1);
+        coordinator.queueAutomaticActivation(1, 3, 500);
+        coordinator.flushAutomaticActivationsAsync();
+        QCOMPARE(calls.load(), 1);
+        release.release();
+        // A synchronous request must also respect the background operation's cooldown.
+        QTRY_VERIFY(coordinator.automaticActivation_.isFinished());
+        coordinator.queueAutomaticActivation(1, 3, 500);
+        coordinator.flushAutomaticActivations();
+        QCOMPARE(calls.load(), 1);
+        now = 1600;
+        release.release();
+        coordinator.queueAutomaticActivation(1, 3, 500);
+        coordinator.flushAutomaticActivations();
+        QCOMPARE(calls.load(), 2);
+    }
     void snapshotsPreserveOrderAndDormantConfiguration()
     {
         int closed = 0;

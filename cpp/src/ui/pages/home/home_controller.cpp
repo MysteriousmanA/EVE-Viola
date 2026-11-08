@@ -1,3 +1,4 @@
+#include "ui/common/editor_dialogs.h"
 #include "ui/pages/home/home_controller.h"
 #include "config/config_validation.h"
 #include "ui/pages/home/home_page.h"
@@ -80,7 +81,7 @@ void HomeController::renamePresetAt(int slot)
     }
     bool accepted = false;
     const QString name =
-        QInputDialog::getText(host_, QStringLiteral("重命名预设"), QStringLiteral("预设名称"),
+        EditorDialogs::getText(host_, QStringLiteral("重命名预设"), QStringLiteral("预设名称"),
                               QLineEdit::Normal, config_.presets[slot].name, &accepted)
             .trimmed();
     if (!accepted || name.isEmpty()) {

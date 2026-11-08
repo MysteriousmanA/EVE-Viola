@@ -52,6 +52,11 @@ QuickSwitchController::QuickSwitchController(QuickSwitchPage &page, AppConfig &c
                 config_.radialAccounts = accounts;
                 emit persistRequested();
             });
+    connect(quickSwitchPage_, &QuickSwitchPage::radialSwitchRecentSecondsChanged, this,
+        [this](int seconds) {
+            config_.radialSwitchRecentSeconds = seconds;
+            emit persistRequested();
+        });
     connect(quickSwitchPage_, &QuickSwitchPage::radialAccountsRefreshRequested, this, [this] {
         try {
             const QList<WindowInfo> clients = windowCatalog_->windows();
@@ -74,6 +79,7 @@ void QuickSwitchController::refresh()
 {
     quickSwitchPage_->setKeys(config_.previousClientKeys, config_.nextClientKeys);
     quickSwitchPage_->setRadialSwitchKey(config_.radialSwitchKey);
+    quickSwitchPage_->setRadialSwitchRecentSeconds(config_.radialSwitchRecentSeconds);
     QStringList titles;
     try {
         for (const auto &client : windowCatalog_->windows()) {

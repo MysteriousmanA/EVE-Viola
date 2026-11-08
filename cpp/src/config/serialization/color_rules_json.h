@@ -8,5 +8,6 @@ namespace ConfigSerialization
 {
 QJsonObject colorRuleToJson(const ColorRule& rule);
 [[nodiscard]] QList<ColorRule> parseColorRules(const QJsonArray& array, int* nextNumber);
-QJsonObject colorRulesSectionToJson(const QList<ColorRule>& rules, int nextNumber);
+QJsonObject colorRulesSectionToJson(const QList<ColorRule>& rules, int nextNumber,
+    const QList<LogicBindingConfig>& bindings = {});
 } // namespace ConfigSerialization

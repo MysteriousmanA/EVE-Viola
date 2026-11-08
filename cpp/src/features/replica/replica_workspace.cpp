@@ -54,7 +54,11 @@ void ReplicaWorkspace::setDesiredConfig(ReplicaId id, const ReplicaConfig& confi
 
 ReplicaConfig ReplicaWorkspace::desiredConfig(ReplicaId id) const
 {
-    return desiredConfigs_.value(id);
+    const auto it = desiredConfigs_.constFind(id);
+    if (it != desiredConfigs_.cend()) { return it.value(); }
+    ReplicaConfig missing;
+    missing.id.clear();
+    return missing;
 }
 
 void ReplicaWorkspace::appendDormant(const ReplicaConfig& config)

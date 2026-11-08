@@ -30,6 +30,7 @@ public:
     void cancelCapture();
     void stop();
     [[nodiscard]] bool isForegroundWindow(quintptr hwnd) const;
+    void continueRadialHold(quint64 sessionId, quintptr foregroundHwnd);
 
 signals:
     void switchRequested(bool next, quintptr foregroundHwnd);

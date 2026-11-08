@@ -215,7 +215,14 @@ void ThumbnailHandle::reset() noexcept
 NativeGateway::NativeGateway(NativeFunctions functions)
     : functions_(functions)
     , activation_(std::make_unique<ActivationCoordinator>(
-          [this](std::uintptr_t hwnd) { return activateWindow(hwnd); }))
+          [activate = functions.activateWindow](std::uintptr_t hwnd) {
+              std::uintptr_t observed = 0;
+              const auto status = activate(hwnd, &observed);
+              if (status != 0) {
+                  throw NativeException(QStringLiteral("激活 EVE 窗口"), status, observed);
+              }
+              return observed;
+          }))
 {
     if (!functions_.isComplete()) {
         throw NativeException(QStringLiteral("native function table"), -1);
@@ -303,6 +310,7 @@ void NativeGateway::setAutomaticTriggerActive(std::uint64_t id, bool active)
 void NativeGateway::cancelAutomaticActivation(std::uint64_t id)
 { activation_->cancelAutomaticActivation(id); }
 void NativeGateway::flushAutomaticActivations() { activation_->flushAutomaticActivations(); }
+void NativeGateway::flushAutomaticActivationsAsync() { activation_->flushAutomaticActivationsAsync(); }
 bool NativeGateway::activateWindowWithCooldown(std::uintptr_t hwnd, int cooldown, std::uintptr_t* observed)
 { return activation_->activateWindowWithCooldown(hwnd, cooldown, observed); }
 NativeGateway::~NativeGateway() = default;

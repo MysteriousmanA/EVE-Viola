@@ -25,9 +25,12 @@ std::optional<LRESULT> QuickSwitchService::Impl::processRadialKeyboardEvent(
         const bool heldLongEnough = heldMs >= kRadialSwitchHoldDurationMs;
         const bool cancelled = radialCancelRequested.exchange(
             false, std::memory_order_acq_rel);
-        const bool foregroundStillMatches = foreground != nullptr
-            && GetForegroundWindow() == foreground
-            && isEveClientWindow(foreground);
+        const HWND expectedForeground = continuedRadialSession.load(std::memory_order_acquire) == sessionId
+            ? reinterpret_cast<HWND>(continuedRadialForeground.load(std::memory_order_relaxed))
+            : foreground;
+        const bool foregroundStillMatches = expectedForeground != nullptr
+            && GetForegroundWindow() == expectedForeground
+            && isEveClientWindow(expectedForeground);
         const std::size_t virtualKeyIndex = static_cast<std::size_t>(virtualKey * 2);
         captureIgnoreUntilUp[virtualKeyIndex].store(
             false, std::memory_order_relaxed);
@@ -93,6 +96,7 @@ std::optional<LRESULT> QuickSwitchService::Impl::processRadialKeyboardEvent(
         }
 
         const quint64 sessionId = nextRadialSessionId++;
+        continuedRadialSession.store(0, std::memory_order_release);
         state = KeyState::RadialPending;
         radialForegrounds[index] = foreground;
         radialSessionIds[index] = sessionId;

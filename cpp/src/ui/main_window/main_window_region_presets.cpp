@@ -72,6 +72,7 @@ void MainWindow::refreshRegionPresets()
     }
     refreshReplicaFilters();
     refreshReplicaGroups();
+    refreshColorLogicWindows();
 }
 
 void MainWindow::saveRegionPreset(const QRect& region, int interval, bool replace)

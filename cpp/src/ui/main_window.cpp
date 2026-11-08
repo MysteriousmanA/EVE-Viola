@@ -1,11 +1,12 @@
 #include "ui/main_window.h"
+#include "ui/window_color_logic_runtime.h"
+#include "ui/logic_binding_runtime.h"
 
 #include <utility>
 
 #include <QCoreApplication>
 
 #include "features/quick_switch/quick_switch_service.h"
-#include "features/advanced_logic/advanced_logic_service.h"
 #include "features/desktop_pet/desktop_pet_settings_store.h"
 #include "platform/window_catalog.h"
 #include "ui/pages/home/home_page.h"
@@ -32,7 +33,8 @@ MainWindow::MainWindow(NativeGateway& gateway, QString configDirectory, QWidget*
 {
     statisticsCoordinator_ = new StatisticsCoordinator(gateway_, this);
     audioFeedbackManager_ = new AudioFeedbackManager(this);
-    advancedLogicService_ = new AdvancedLogicService(this);
+    windowColorLogicRuntime_ = new WindowColorLogicRuntime(*audioFeedbackManager_, this);
+    logicBindingRuntime_ = new LogicBindingRuntime(*windowColorLogicRuntime_, this);
 
     QString loadError;
     const bool loaded = loadConfiguration(loadError);
@@ -58,7 +60,12 @@ MainWindow::MainWindow(NativeGateway& gateway, QString configDirectory, QWidget*
     setupGameRestoreMonitoring();
     setupPagePartitionEveMonitoring();
 
+    const auto configuredReplicas = config_.replicas;
+    config_.replicas = synchronizeLogicBindingReplicas(configuredReplicas, false);
     restoreConfiguredReplicas();
+    config_.replicas = synchronizeLogicBindingReplicas(replicaController_.snapshot(), true);
+    refreshLogicBindings();
+    if (config_.replicas != configuredReplicas) { schedulePersistReplicas(); }
     applyRuntimePolicy();
     startQuickSwitch();
     if (!loaded) {

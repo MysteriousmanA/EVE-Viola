@@ -7,19 +7,13 @@
 
 void MainWindow::connectReplicaSignals(ReplicaWindow* window, ReplicaRow* row)
 {
+    connect(row, &ReplicaRow::regionPresetNameChanged, this, &MainWindow::refreshColorLogicWindows);
     connect(
         row,
         &ReplicaRow::replicaVisibilityChanged,
         this,
         [this, window, id = window->replicaId()](bool visible) {
-            const auto config = replicaController_.setUserVisible(id, visible);
-            if (!visible) {
-                if (auto* row = rows_.value(id)) {
-                    row->setColorLogicSlot(2, config.colorLogicSlotRule[1]);
-                    row->setActiveColorLogicSlot(config.activeColorLogicSlot);
-                    row->setColorLogicEnabled(config.colorLogicEnabled);
-                }
-            }
+            replicaController_.update(id, [visible](ReplicaConfig& state) { state.visible = visible; });
             if (runtimePolicy_.replicaVisible(visible)) { window->show(); }
             else { window->hide(); }
         });
@@ -61,6 +55,7 @@ void MainWindow::connectReplicaSignals(ReplicaWindow* window, ReplicaRow* row)
         [this](const QString&) {
             refreshReplicaFilters();
             refreshReplicaGroups();
+            refreshColorLogicWindows();
         });
     connect(
         window,
@@ -95,6 +90,7 @@ void MainWindow::connectReplicaSignals(ReplicaWindow* window, ReplicaRow* row)
             row->setCurrentRegionPresetName(preset.name);
             refreshReplicaFilters();
             refreshReplicaGroups();
+            refreshColorLogicWindows();
         });
     connect(
         window,
@@ -108,6 +104,7 @@ void MainWindow::connectReplicaSignals(ReplicaWindow* window, ReplicaRow* row)
         [this](const QString&) {
             refreshReplicaFilters();
             refreshReplicaGroups();
+            refreshColorLogicWindows();
         });
     connect(
         window,
@@ -159,11 +156,6 @@ void MainWindow::connectReplicaSignals(ReplicaWindow* window, ReplicaRow* row)
         &ReplicaWindow::statisticsIntervalChanged,
         this,
         [this](int) { refreshReplicaGroups(); });
-    connect(
-        row,
-        &ReplicaRow::sourceNameVisibilityChanged,
-        window,
-        &ReplicaWindow::setSourceNameVisible);
     connect(
         window,
         &ReplicaWindow::colorStatisticsChanged,
@@ -259,11 +251,6 @@ void MainWindow::connectReplicaSignals(ReplicaWindow* window, ReplicaRow* row)
     connect(
         row,
         &ReplicaRow::colorLogicSlotColorChanged,
-        this,
-        &MainWindow::schedulePersistReplicas);
-    connect(
-        row,
-        &ReplicaRow::sourceNameVisibilityChanged,
         this,
         &MainWindow::schedulePersistReplicas);
     connect(

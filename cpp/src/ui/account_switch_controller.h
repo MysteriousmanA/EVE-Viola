@@ -1,6 +1,9 @@
 #pragma once
 #include <QObject>
 #include <QPoint>
+#include <QElapsedTimer>
+#include <QHash>
+#include <QStringList>
 #include "config/app_config.h"
 #include "platform/native_gateway.h"
 class QWidget;
@@ -18,6 +21,7 @@ public:
     void setInputCaptureActive(bool active);
     RadialSwitchOverlay* overlay() const noexcept;
     void switchEveClient(bool next, quintptr foregroundHwnd);
+    void setAccountTriggers(const QHash<quintptr, QStringList>& triggers);
     void beginRadialSwitchHold(quint64 sessionId, quintptr foregroundHwnd);
     void endRadialSwitchHold(
         quint64 sessionId,
@@ -36,6 +40,10 @@ public:
 signals:
     void accountPositionSelected(const QString& title, int position);
 private:
+    friend class MainWindowTest;
+    void recordForegroundVisit();
+    bool eligibleTrigger(quintptr hwnd) const;
+    QList<WindowInfo> triggerCandidates(const QList<WindowInfo>& clients) const;
     NativeGateway& gateway_;
     WindowCatalog& catalog_;
     const AppConfig& config_;
@@ -43,6 +51,11 @@ private:
     RadialSwitchOverlay* radialSwitchOverlay_{};
     QTimer* radialSwitchHoldTimer_{};
     QTimer* radialSwitchCursorTimer_{};
+    QTimer* foregroundVisitTimer_{};
+    QElapsedTimer clock_;
+    QElapsedTimer holdClock_;
+    QHash<quintptr, qint64> lastVisited_;
+    QHash<quintptr, QStringList> accountTriggers_;
     bool stopped_{};
     bool quickSwitchCaptureActive_{};
     bool radialSwitchKeyHeld_{};
@@ -50,6 +63,7 @@ private:
     bool radialSwitchWheelVisible_{};
     quint64 radialSwitchSessionId_{};
     quintptr radialSwitchForegroundHwnd_{};
+    quintptr radialSwitchOriginHwnd_{};
     QPoint radialSwitchAnchor_;
     QList<WindowInfo> radialSwitchClients_;
 };

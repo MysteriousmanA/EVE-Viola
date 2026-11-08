@@ -5,6 +5,7 @@
 #include "features/quick_switch/quick_switch_service.h"
 #include "platform/window_catalog.h"
 #include "ui/account_switch_controller.h"
+#include "ui/window_color_logic_runtime.h"
 #include "ui/pages/quick_switch/quick_switch_page.h"
 #include "ui/pages/quick_switch/quick_switch_controller.h"
 
@@ -13,6 +14,8 @@ void MainWindow::initializeAccountSwitchController()
     accountSwitchController_ = new AccountSwitchController(
         gateway_, *windowCatalog_, config_, *quickSwitchService_, this);
     radialSwitchOverlay_ = accountSwitchController_->overlay();
+    connect(windowColorLogicRuntime_, &WindowColorLogicRuntime::accountTriggersChanged,
+        accountSwitchController_, &AccountSwitchController::setAccountTriggers);
 }
 
 void MainWindow::connectQuickSwitchSignals()

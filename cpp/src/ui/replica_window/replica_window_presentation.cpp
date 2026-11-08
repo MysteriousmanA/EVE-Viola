@@ -1,9 +1,5 @@
 #include "ui/replica_window.h"
 
-#include <algorithm>
-#include <QFont>
-#include <QFontMetrics>
-#include <QLabel>
 #include <QPainter>
 #include <QPaintEvent>
 #include <QTimer>
@@ -24,20 +20,14 @@ void ReplicaWindow::paintEvent(QPaintEvent* event)
 
     QPainter painter(this);
 
-    const bool sourceNameMode =
-        sourceNameVisible_ && source_.has_value() && !capturingRegion_;
-    if (sourceNameMode) {
-        painter.fillRect(rect(), QColor(0x05, 0x09, 0x0C));
-    } else {
-        QRegion backdrop(rect());
-        if (thumbnail_.has_value() || capturingRegion_) {
-            backdrop -= QRegion(displayRect());
-        }
-        painter.save();
-        painter.setClipRegion(backdrop);
-        painter.fillRect(rect(), QColor(0x05, 0x09, 0x0C));
-        painter.restore();
+    QRegion backdrop(rect());
+    if (thumbnail_.has_value() || capturingRegion_) {
+        backdrop -= QRegion(displayRect());
     }
+    painter.save();
+    painter.setClipRegion(backdrop);
+    painter.fillRect(rect(), QColor(0x05, 0x09, 0x0C));
+    painter.restore();
 
     if (capturingRegion_ && !frozenFrame_.isNull()) {
         painter.setRenderHint(QPainter::SmoothPixmapTransform);
@@ -73,26 +63,6 @@ void ReplicaWindow::paintEvent(QPaintEvent* event)
     painter.fillRect(width() - kBorderWidth, kBorderWidth, kBorderWidth, height() - 2 * kBorderWidth, border);
 }
 
-void ReplicaWindow::setSourceNameVisible(bool visible)
-{
-    if (sourceNameVisible_ == visible) { return; }
-    if (frameCapturePending_) { cancelRegionCapture(); }
-    sourceNameVisible_ = visible;
-    if (!sourceNameVisible_) {
-        sourceNameOverlay_->hide();
-    }
-    updateThumbnail();
-    sourceNameOverlay_->setVisible(
-        sourceNameVisible_ && source_.has_value() && !sourceNameOverlay_->text().isEmpty());
-    if (sourceNameOverlay_->isVisible()) {
-        sourceNameOverlay_->raise();
-    }
-    update();
-    emit settingsChanged();
-}
-
-bool ReplicaWindow::sourceNameVisible() const noexcept { return sourceNameVisible_; }
-
 void ReplicaWindow::setPresentationSuppressed(bool suppressed) { presentationSuppressed_ = suppressed; }
 
 void ReplicaWindow::setVisible(bool visible)
@@ -108,8 +78,10 @@ void ReplicaWindow::setVisible(bool visible)
 
 void ReplicaWindow::applyColorLogicBorder()
 {
-    QColor color(255, 255, 255);
-    if (colorLogicEngine_.enabled()) {
+    QColor color = sharedLogicBorderColor_.isValid()
+        ? sharedLogicBorderColor_ : QColor(255, 255, 255);
+    if (!sharedLogicBorderColor_.isValid() && !globalColorLogicManaged_
+        && colorLogicEngine_.enabled()) {
         const int slot = colorLogicEngine_.activeSlot() - 1;
         if (slot >= 0 && slot < 2 && colorLogicSlotColor_[slot].isValid()) {
             color = colorLogicSlotColor_[slot];
@@ -117,8 +89,16 @@ void ReplicaWindow::applyColorLogicBorder()
     }
     if (color != borderColor_) {
         borderColor_ = color;
+        if (flashActive_) { flashColor_ = color; }
         update();
     }
+}
+
+void ReplicaWindow::setSharedLogicBorderColor(const QColor& color)
+{
+    if (sharedLogicBorderColor_ == color) { return; }
+    sharedLogicBorderColor_ = color;
+    applyColorLogicBorder();
 }
 
 QColor ReplicaWindow::borderColor() const noexcept
@@ -156,52 +136,4 @@ void ReplicaWindow::setGlobalFlashState(bool dimmed)
     }
     globalDimmed_ = dimmed;
     update();
-}
-
-void ReplicaWindow::positionSourceNameOverlay()
-{
-    static constexpr int kBaseWindowWidth = 360;
-    static constexpr int kBaseWindowHeight = 240;
-    static constexpr int kBaseFontPointSize = 18;
-    static constexpr int kMinimumFontPointSize = 6;
-
-    const double scale = std::clamp(
-        std::min(
-            static_cast<double>(width()) / kBaseWindowWidth,
-            static_cast<double>(height()) / kBaseWindowHeight),
-        0.5,
-        4.0);
-
-    QFont font = sourceNameOverlay_->font();
-    int pointSize = qRound(kBaseFontPointSize * scale);
-    const int availableWidth = std::max(
-        1,
-        width() - 2 * sourceNameOverlay_->margin() - 2 * kBorderWidth);
-    QFontMetrics metrics(font);
-    while (pointSize > kMinimumFontPointSize
-           && metrics.horizontalAdvance(sourceNameOverlay_->text()) > availableWidth) {
-        --pointSize;
-        font.setPointSize(pointSize);
-        metrics = QFontMetrics(font);
-    }
-    font.setPointSize(pointSize);
-    if (font != sourceNameOverlay_->font()) {
-        sourceNameOverlay_->setFont(font);
-    }
-
-    sourceNameOverlay_->adjustSize();
-    sourceNameOverlay_->move(
-        (width() - sourceNameOverlay_->width()) / 2,
-        (height() - sourceNameOverlay_->height()) / 2);
-}
-
-QString ReplicaWindow::sourceNameFromTitle(const QString& title)
-{
-    const QString trimmed = title.trimmed();
-    const QString separator = QStringLiteral(" - ");
-    const qsizetype separatorIndex = trimmed.lastIndexOf(separator);
-    if (separatorIndex >= 0) {
-        return trimmed.mid(separatorIndex + separator.size()).trimmed();
-    }
-    return trimmed;
 }

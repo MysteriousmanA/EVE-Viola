@@ -8,7 +8,8 @@ ColorRuleController::ColorRuleController(AppConfig &config, QWidget *host)
 }
 void ColorRuleController::createColorRule()
 {
-    const auto rule = promptColorRule(host_, {});
+    const auto rule = promptColorRule(host_, {}, replicaProvider_ ? replicaProvider_() : config_.replicas, config_.colorRules,
+        presetNameProvider_ ? presetNameProvider_() : QHash<QString, QString>{});
     if (!rule.has_value()) {
         return;
     }
@@ -20,7 +21,8 @@ void ColorRuleController::editColorRuleNumber(int number)
 {
     for (const auto &current : config_.colorRules) {
         if (current.number == number) {
-            const auto edited = promptColorRule(host_, current);
+            const auto edited = promptColorRule(host_, current, replicaProvider_ ? replicaProvider_() : config_.replicas, config_.colorRules,
+                presetNameProvider_ ? presetNameProvider_() : QHash<QString, QString>{});
             if (edited.has_value() && updateColorRule(config_, number, *edited)) {
                 emit rulesChanged();
                 emit persistRequested();

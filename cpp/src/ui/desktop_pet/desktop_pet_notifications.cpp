@@ -14,6 +14,7 @@
 
 #include "features/desktop_pet/astrbot_notifier.h"
 #include "ui/desktop_pet/floating_pet_window.h"
+#include "ui/replica_row/scroll_passthrough_controls.h"
 
 void DesktopPetPage::buildNotificationSettings(QVBoxLayout* layout, QWidget* parent)
 {
@@ -23,7 +24,7 @@ void DesktopPetPage::buildNotificationSettings(QVBoxLayout* layout, QWidget* par
     auto* title = new QLabel(QStringLiteral("提示与 AstrBot 推送"), panel);
     title->setObjectName(QStringLiteral("petSectionTitle"));
     form->addRow(title);
-    modeCombo_ = new QComboBox(panel);
+    modeCombo_ = new ReplicaRowUi::ScrollPassthroughCombo(panel);
     modeCombo_->setObjectName(QStringLiteral("desktopPetMode"));
     for (auto mode : {DesktopPetMode::Resident, DesktopPetMode::Fish, DesktopPetMode::DoNotDisturb}) {
         modeCombo_->addItem(desktopPetModeName(mode), static_cast<int>(mode));

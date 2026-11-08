@@ -20,11 +20,6 @@ set_tests_properties(cpp_native_import_test PROPERTIES
 )
 
 add_library(eve_viola_domain STATIC
-    src/features/advanced_logic/advanced_logic_types.h
-    src/features/advanced_logic/advanced_logic_engine.h
-    src/features/advanced_logic/advanced_logic_engine.cpp
-    src/config/serialization/advanced_logic_json.h
-    src/config/serialization/advanced_logic_json.cpp
     src/features/replica_list/statistics_workload_estimator.h
     src/features/replica_list/statistics_workload_estimator.cpp
     src/features/page_partition/page_partition_model.h
@@ -66,6 +61,10 @@ add_library(eve_viola_domain STATIC
     src/config/serialization/application_options_json.cpp
     src/config/json_config_store.cpp
     src/config/app_config.h
+    src/features/color_rule/logic_binding_plan.cpp
+    src/features/color_rule/logic_binding_plan.h
+    src/features/color_rule/window_color_logic_engine.cpp
+    src/features/color_rule/window_color_logic_engine.h
     src/features/color_rule/color_logic_engine.cpp
     src/features/color_rule/color_logic_engine.h
     src/features/replica/pixel_statistics.cpp
@@ -100,8 +99,6 @@ set_tests_properties(cpp_page_feature_services_test PROPERTIES
 )
 
 add_library(eve_viola_cpp_core STATIC
-    src/features/advanced_logic/advanced_logic_service.h
-    src/features/advanced_logic/advanced_logic_service.cpp
     src/app/activation_coordinator.cpp
     src/app/activation_coordinator.h
     src/features/region_preset/preset_service.cpp
@@ -298,6 +295,7 @@ add_library(eve_viola_cpp_ui STATIC
     src/ui/pages/quick_switch/quick_switch_page.cpp
     src/ui/pages/color_rule/color_rule_page.h
     src/ui/pages/color_rule/color_rule_page.cpp
+    src/ui/pages/color_rule/replica_choice_label.h
     src/ui/pages/color_rule/color_rule_dialog.h
     src/ui/pages/color_rule/color_rule_dialog.cpp
     src/ui/pages/color_rule/color_rule_controller.h
@@ -308,6 +306,13 @@ add_library(eve_viola_cpp_ui STATIC
     src/ui/account_switch_controller.h
     src/ui/region_capture_controller.cpp
     src/ui/region_capture_controller.h
+    src/ui/logic_binding_runtime.h
+    src/ui/logic_binding_runtime.cpp
+    src/ui/pages/logic_list/logic_list_page.h
+    src/ui/pages/logic_list/logic_list_page.cpp
+    src/ui/main_window/main_window_logic_list.cpp
+    src/ui/window_color_logic_runtime.h
+    src/ui/window_color_logic_runtime.cpp
     src/ui/replica_binding.cpp
     src/ui/replica_binding.h
     src/ui/audio_feedback_manager.cpp
@@ -336,8 +341,6 @@ add_library(eve_viola_cpp_ui STATIC
     src/ui/expedition_timing_page.h
     src/ui/configuration_pages.h
     src/ui/main_window.cpp
-    src/ui/pages/advanced_logic/advanced_logic_page.h
-    src/ui/pages/advanced_logic/advanced_logic_page.cpp
     src/ui/main_window/main_window_home.cpp
     src/ui/main_window/main_window_region_presets.cpp
     src/ui/main_window/main_window_color_rules.cpp
@@ -434,20 +437,13 @@ set_tests_properties(cpp_replica_window_test PROPERTIES
 )
 
 add_executable(cpp_main_window_test tests/main_window_test.cpp)
-add_executable(cpp_advanced_logic_test tests/advanced_logic_test.cpp)
-set_target_properties(cpp_advanced_logic_test PROPERTIES AUTOMOC ON)
-target_link_libraries(cpp_advanced_logic_test PRIVATE eve_viola_cpp_ui Qt6::Test)
-add_test(NAME cpp_advanced_logic_test COMMAND cpp_advanced_logic_test)
-set_tests_properties(cpp_advanced_logic_test PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
-)
 set_target_properties(cpp_main_window_test PROPERTIES AUTOMOC ON)
 target_compile_features(cpp_main_window_test PRIVATE cxx_std_20)
 target_include_directories(cpp_main_window_test PRIVATE src)
 target_link_libraries(cpp_main_window_test PRIVATE eve_viola_cpp_ui Qt6::Test)
 
-add_test(NAME cpp_main_window_test COMMAND cpp_main_window_test)
+add_test(NAME cpp_main_window_test COMMAND cpp_main_window_test
+    -o -,txt -o "${CMAKE_CURRENT_BINARY_DIR}/main_window_test-results.xml,junitxml")
 set_tests_properties(cpp_main_window_test PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     ENVIRONMENT_MODIFICATION
@@ -515,4 +511,20 @@ add_test(NAME cpp_single_instance_test COMMAND cpp_single_instance_test)
 set_tests_properties(cpp_single_instance_test PROPERTIES
     ENVIRONMENT_MODIFICATION
         "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+)
+
+add_executable(cpp_window_color_logic_engine_test tests/window_color_logic_engine_test.cpp)
+set_target_properties(cpp_window_color_logic_engine_test PROPERTIES AUTOMOC ON)
+target_link_libraries(cpp_window_color_logic_engine_test PRIVATE eve_viola_domain Qt6::Test)
+add_test(NAME cpp_window_color_logic_engine_test COMMAND cpp_window_color_logic_engine_test)
+set_tests_properties(cpp_window_color_logic_engine_test PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+)
+
+add_executable(cpp_logic_binding_plan_test tests/logic_binding_plan_test.cpp)
+set_target_properties(cpp_logic_binding_plan_test PROPERTIES AUTOMOC ON)
+target_link_libraries(cpp_logic_binding_plan_test PRIVATE eve_viola_domain Qt6::Test)
+add_test(NAME cpp_logic_binding_plan_test COMMAND cpp_logic_binding_plan_test)
+set_tests_properties(cpp_logic_binding_plan_test PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
 )

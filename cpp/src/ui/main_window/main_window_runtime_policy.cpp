@@ -1,4 +1,5 @@
 #include "ui/main_window.h"
+#include "ui/window_color_logic_runtime.h"
 
 #include <QStatusBar>
 #include "ui/page_partition_page.h"
@@ -14,6 +15,7 @@ void MainWindow::setDesktopPetMode(DesktopPetMode mode)
 
 void MainWindow::applyRuntimePolicy()
 {
+    windowColorLogicRuntime_->setMode(runtimePolicy_.desktopPetMode);
     if (pagePartitionPage_) {
         pagePartitionPage_->setFishModeSuppressed(runtimePolicy_.presentationSuppressed());
         pagePartitionPage_->setCaptureOverlaySuppressed(runtimePolicy_.regionCapture);

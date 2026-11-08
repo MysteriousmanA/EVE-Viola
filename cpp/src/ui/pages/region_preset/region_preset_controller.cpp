@@ -1,3 +1,4 @@
+#include "ui/common/editor_dialogs.h"
 #include "ui/pages/region_preset/region_preset_controller.h"
 #include "features/region_preset/region_preset_config.h"
 #include "config/config_validation.h"
@@ -34,7 +35,7 @@ void RegionPresetController::saveRegionPreset(const QRect &region, int statistic
     while (true) {
         bool accepted = false;
         name =
-            QInputDialog::getText(host_, QStringLiteral("保存区域预设"), QStringLiteral("预设名称"),
+            EditorDialogs::getText(host_, QStringLiteral("保存区域预设"), QStringLiteral("预设名称"),
                                   QLineEdit::Normal, defaultName, &accepted)
                 .trimmed();
         if (!accepted) {
@@ -69,6 +70,8 @@ void RegionPresetController::saveRegionPreset(const QRect &region, int statistic
         existingPreset != config_.regionPresets.end() && confirmReplacementOnDuplicate
             ? existingPreset->statisticsIntervalMs
             : statisticsIntervalMs,
+        existingPreset == config_.regionPresets.end() ? QList<PixelColorTarget>{}
+                                                     : existingPreset->colorTolerances,
     };
     const bool replacing = existingPreset != config_.regionPresets.end();
     if (replacing) {
@@ -92,7 +95,7 @@ void RegionPresetController::renameRegionPresetAt(int row)
     }
     bool accepted = false;
     const QString name =
-        QInputDialog::getText(host_, QStringLiteral("重命名区域预设"), QStringLiteral("预设名称"),
+        EditorDialogs::getText(host_, QStringLiteral("重命名区域预设"), QStringLiteral("预设名称"),
                               QLineEdit::Normal, config_.regionPresets[row].name, &accepted)
             .trimmed();
     if (!accepted || name.isEmpty()) {

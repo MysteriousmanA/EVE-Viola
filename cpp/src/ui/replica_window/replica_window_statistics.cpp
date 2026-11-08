@@ -11,6 +11,9 @@ void ReplicaWindow::initializeStatistics()
                 return;
             }
             const auto& statistics = *result;
+            lastStatistics_ = statistics;
+            lastRedCount_ = statistics.redCount;
+            lastWhiteCount_ = statistics.whiteCount;
             emit pixelStatisticsChanged(statistics.redCount, statistics.whiteCount);
             emit colorStatisticsChanged(statistics);
             evaluateColorLogic(statistics);
@@ -30,7 +33,7 @@ void ReplicaWindow::setStatisticsInterval(int milliseconds)
     const bool changed = statisticsIntervalMs_ != milliseconds;
     statisticsIntervalMs_ = milliseconds;
     const bool enabled = milliseconds != kStatisticsIntervalDisabledMs;
-    if (!enabled) { cancelAdvancedLogic(); }
+    if (!enabled) { colorLogicEngine_.resetNotificationObservation(); }
     if (enabled != statisticsEnabled_) {
         statisticsEnabled_ = enabled;
         if (!enabled) {
@@ -50,6 +53,9 @@ void ReplicaWindow::syncStatisticsRegistration()
         return;
     }
     auto targets = statisticsColors_;
+    for (const auto& target : logicRequiredColors_) {
+        if (!targets.contains(target)) { targets.append(target); }
+    }
     for (const auto& rule : appliedColorRules_) {
         if (rule.number != colorLogicSlotRule(1) && rule.number != colorLogicSlotRule(2)) { continue; }
         for (const auto& condition : {rule.triggerCondition1, rule.triggerCondition2}) {

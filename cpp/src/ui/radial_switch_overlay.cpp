@@ -224,6 +224,13 @@ int RadialSwitchOverlay::selectedIndex() const noexcept
     return selectedIndex_;
 }
 
+void RadialSwitchOverlay::setTriggerLabels(const QHash<quintptr, QStringList>& labels)
+{
+    if (triggerLabels_ == labels) { return; }
+    triggerLabels_ = labels;
+    update();
+}
+
 void RadialSwitchOverlay::updateRadii()
 {
     outerRadius_ = qMax<qreal>(
@@ -358,13 +365,37 @@ void RadialSwitchOverlay::paintEvent(QPaintEvent*)
         const QString accountName = clients_.at(index).title.trimmed().isEmpty()
             ? QStringLiteral("账号 %1").arg(index + 1)
             : clients_.at(index).title.trimmed();
-        const QString displayName = metrics.elidedText(
+        QString displayName = metrics.elidedText(
             accountName, Qt::ElideRight, labelRect.width());
+        const auto labels = triggerLabels_.value(static_cast<quintptr>(clients_.at(index).hwnd));
+        if (!labels.isEmpty()) {
+            displayName += QLatin1Char('\n') + metrics.elidedText(
+                labels.join(QStringLiteral(" / ")), Qt::ElideRight, labelRect.width());
+        }
         painter.setPen(QColor(242, 248, 251));
         painter.drawText(labelRect, Qt::AlignCenter, displayName);
     }
 
     if (!petRingMode_) {
+        if (selectedIndex_ >= 0 && selectedIndex_ < clients_.size()) {
+            const auto& client = clients_.at(selectedIndex_);
+            const auto labels = triggerLabels_.value(static_cast<quintptr>(client.hwnd));
+            if (!labels.isEmpty()) {
+                const QString detail = client.title + QStringLiteral("：") + labels.join(QStringLiteral(" / "));
+                const int panelWidth = qMin(600, width() - 24);
+                const QRect measured = metrics.boundingRect(QRect(0, 0, panelWidth - 20, height()),
+                    Qt::AlignCenter | Qt::TextWordWrap, detail);
+                const int panelHeight = qMin(height() - 24, measured.height() + 20);
+                const int panelY = qBound(12, qRound(center.y() + outerRadius_ + 12), height() - panelHeight - 12);
+                const QRect panel(qBound(12, qRound(center.x() - panelWidth / 2.0), width() - panelWidth - 12),
+                    panelY, panelWidth, panelHeight);
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(QColor(8, 19, 27, 246));
+                painter.drawRoundedRect(panel, 8, 8);
+                painter.setPen(QColor(242, 248, 251));
+                painter.drawText(panel.adjusted(10, 10, -10, -10), Qt::AlignCenter | Qt::TextWordWrap, detail);
+            }
+        }
         painter.setPen(QPen(QColor(188, 222, 235, 235), 1.5));
         painter.setBrush(QColor(8, 19, 27, 246));
         painter.drawEllipse(center, innerRadius_, innerRadius_);

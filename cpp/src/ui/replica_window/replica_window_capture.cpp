@@ -59,7 +59,7 @@ void ReplicaWindow::beginRegionCapture()
     if (!thumbnail_.has_value() || !source_.has_value() || capturingRegion_ || frameCapturePending_) {
         return;
     }
-    cancelAdvancedLogic();
+    colorLogicEngine_.resetNotificationObservation();
     emptyLabel_->hide();
     frameCapturePending_ = true;
     frameCaptureRequest_ = statisticsCoordinator_.requestFrame(
@@ -105,16 +105,23 @@ void ReplicaWindow::setRegionPresets(const QList<RegionPreset>& presets)
 void ReplicaWindow::applyRegionPreset(const RegionPreset& preset)
 {
     if (frameCapturePending_) { cancelRegionCapture(); }
-    if (!thumbnail_.has_value() || !source_.has_value()) {
+    if (!source_.has_value()) {
+        if (!preset.region.isValid() || preset.region.isEmpty()) { return; }
+        capturedRegion_ = preset.region;
+        emit regionCaptured(preset.region);
+        emit regionCaptureChanged(regionDescription());
+        setStatisticsInterval(preset.statisticsIntervalMs);
+        emit settingsChanged();
         return;
     }
+    if (!thumbnail_.has_value()) { return; }
     const QRect bounds(0, 0, sourceSize_.width(), sourceSize_.height());
     const QRect applied = preset.region.normalized().intersected(bounds);
     if (applied.isEmpty()) {
         emit regionCaptureChanged(QStringLiteral("未发现区域，已重置"));
         return;
     }
-    cancelAdvancedLogic();
+    colorLogicEngine_.resetNotificationObservation();
     capturedRegion_ = applied;
     selectedRegion_.reset();
     applyContentAspectRatio();
@@ -129,6 +136,13 @@ void ReplicaWindow::applyRegionPreset(const RegionPreset& preset)
 void ReplicaWindow::setCapturedRegion(const QRect& region)
 {
     if (frameCapturePending_) { cancelRegionCapture(); }
+    if (!source_.has_value() && region.isValid() && !region.isEmpty()) {
+        capturedRegion_ = region;
+        emit regionCaptured(region);
+        emit regionCaptureChanged(regionDescription());
+        emit settingsChanged();
+        return;
+    }
     if (!thumbnail_.has_value() || !source_.has_value() || region.isEmpty()) {
         return;
     }
@@ -146,7 +160,7 @@ void ReplicaWindow::setCapturedRegion(const QRect& region)
         emit regionCaptureChanged(QStringLiteral("未发现区域，已重置"));
         return;
     }
-    cancelAdvancedLogic();
+    colorLogicEngine_.resetNotificationObservation();
     capturedRegion_ = applied;
     selectedRegion_.reset();
     applyContentAspectRatio();
@@ -169,7 +183,7 @@ void ReplicaWindow::finishRegionCapture(bool confirmed)
     if (confirmed && region.has_value() && !region->isEmpty()) {
         const auto sourceRegion = mapToSource(*region);
         if (sourceRegion.has_value()) {
-            cancelAdvancedLogic();
+            colorLogicEngine_.resetNotificationObservation();
             capturedRegion_ = sourceRegion;
             applyContentAspectRatio();
             emit regionCaptured(*sourceRegion);

@@ -44,7 +44,6 @@ void ReplicaWindow::resizeEvent(QResizeEvent* event)
         enforceAspectRatio();
     }
     QWidget::resizeEvent(event);
-    positionSourceNameOverlay();
     updateThumbnail();
     emit sizeChanged(size());
 }

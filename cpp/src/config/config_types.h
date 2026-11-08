@@ -5,15 +5,16 @@
 #include <utility>
 
 #include <QColor>
+#include <QHash>
 #include <QList>
 #include <QPoint>
 #include <QRect>
 #include <QSize>
 #include <QString>
 #include <QStringList>
+#include <QUuid>
 
 #include "features/replica/pixel_statistics_calculator.h"
-#include "features/advanced_logic/advanced_logic_types.h"
 
 inline constexpr int kStatisticsIntervalDisabledMs = 0;
 inline constexpr int kStatisticsIntervalMinimumMs = 1500;
@@ -58,6 +59,9 @@ struct RegionPreset {
     QRect region;
     int statisticsIntervalMs{kDefaultStatisticsIntervalMs};
 
+    // Empty inherits the application's common color matching settings.
+    QList<PixelColorTarget> colorTolerances;
+
     bool operator==(const RegionPreset&) const = default;
 };
 
@@ -100,8 +104,6 @@ enum class PostTriggerAction {
     ReverseWait,
 };
 
-enum class ColorRulePriority { Normal, High, Immediate };
-
 enum class TriggerConditionRelation { And, Or };
 
 struct TriggerCondition {
@@ -109,6 +111,7 @@ struct TriggerCondition {
     double lowerValue{0.0};
     QString upperOperator;
     double upperValue{0.0};
+    TriggerConditionRelation relation{TriggerConditionRelation::And};
 
     [[nodiscard]] bool isEmpty() const noexcept;
     [[nodiscard]] QString toString() const;
@@ -120,6 +123,7 @@ struct ColorRuleCondition {
     QString pixel;
     QString expression;
     int tolerance{-1};
+    QString replicaId; // Definition: region-preset:<name>; runtime: per-instance sampling window ID.
 
     [[nodiscard]] bool isEmpty() const noexcept
     {
@@ -137,6 +141,14 @@ struct ColorRuleCondition {
     bool operator==(const ColorRuleCondition&) const = default;
 };
 
+struct ColorRuleWindowSwitch {
+    QString replicaId; // Region preset in a definition; binding-specific window at runtime.
+    QColor borderColor; // Invalid means the rule does not change this window's border.
+    int middleClickRule{}; // Zero disables middle-click switching.
+
+    bool operator==(const ColorRuleWindowSwitch&) const = default;
+};
+
 struct ColorRule {
     int number{};
     QString note;
@@ -146,7 +158,12 @@ struct ColorRule {
     TriggerFeedback triggerFeedback{TriggerFeedback::None};
     QString triggerFeedbackAudio;
     PostTriggerAction postTriggerAction{PostTriggerAction::Loop};
-    ColorRulePriority priority{ColorRulePriority::Normal};
+    QList<ColorRuleCondition> windowConditions;
+    QList<ColorRuleWindowSwitch> windowSwitches;
+    QString targetReplicaId;
+    bool enabled{true};
+    int jumpToRule{};
+    int definitionNumber{}; // Runtime instance -> reusable rule number; never serialized.
 
     ColorRule() = default;
 
@@ -170,7 +187,6 @@ struct ReplicaConfig {
     int colorLogicSlotRule[2]{0, 0};
     bool colorLogicEnabled{false};
     int activeColorLogicSlot{1};
-    bool sourceNameVisible{false};
     bool visible{true};
     bool collapsed{false};
     QPoint position;
@@ -178,16 +194,17 @@ struct ReplicaConfig {
     QColor slotColor1{QColor(46, 204, 64)};
     QColor slotColor2{QColor(41, 121, 255)};
     QList<PixelColorTarget> statisticsColors{defaultPixelColorTargets()};
+    QString id{QUuid::createUuid().toString(QUuid::WithoutBraces)};
 
     bool operator==(const ReplicaConfig& other) const
     {
-        return sourceTitle == other.sourceTitle && capturedRegion == other.capturedRegion &&
+        return id == other.id && sourceTitle == other.sourceTitle && capturedRegion == other.capturedRegion &&
                statisticsIntervalMs == other.statisticsIntervalMs &&
                colorLogicSlotRule[0] == other.colorLogicSlotRule[0] &&
                colorLogicSlotRule[1] == other.colorLogicSlotRule[1] &&
                colorLogicEnabled == other.colorLogicEnabled &&
                activeColorLogicSlot == other.activeColorLogicSlot &&
-               sourceNameVisible == other.sourceNameVisible && visible == other.visible &&
+               visible == other.visible &&
                collapsed == other.collapsed && position == other.position && size == other.size &&
                slotColor1 == other.slotColor1 && slotColor2 == other.slotColor2 &&
                statisticsColors == other.statisticsColors;
@@ -205,10 +222,21 @@ struct PresetConfig {
     }
 };
 
+struct LogicBindingConfig {
+    QString id{QUuid::createUuid().toString(QUuid::WithoutBraces)};
+    int ruleNumber{};
+    QString sourceTitle;
+    QString sourceProcessName{QStringLiteral("exefile.exe")};
+    bool enabled{true};
+    QHash<QString, QString> windowIds; // Region template ID -> existing small-window ID.
+    bool operator==(const LogicBindingConfig&) const = default;
+};
+
 struct AppConfig {
+    QList<PixelColorTarget> colorTolerances{defaultPixelColorTargets()};
     QList<RegionPreset> regionPresets;
     QList<ColorRule> colorRules;
-    AdvancedLogicConfig advancedLogic;
+    QList<LogicBindingConfig> logicBindings;
     PagePartitionConfig pagePartition;
     QList<ReplicaConfig> replicas;
     int nextColorRuleNumber{1};
@@ -224,5 +252,24 @@ struct AppConfig {
     QStringList previousClientKeys{QStringLiteral("PageUp")};
     QStringList nextClientKeys{QStringLiteral("PageDown")};
     QString radialSwitchKey{kDefaultRadialSwitchKey};
+    int radialSwitchRecentSeconds{10};
     QList<RadialAccountConfig> radialAccounts;
 };
+
+inline QList<PixelColorTarget> regionColorTolerances(const AppConfig& config, const QString& name)
+{
+    for (const auto& preset : config.regionPresets) {
+        if (preset.name == name && !preset.colorTolerances.isEmpty()) {
+            return preset.colorTolerances;
+        }
+    }
+    return config.colorTolerances;
+}
+
+inline int colorToleranceFor(const QList<PixelColorTarget>& settings, const QString& color)
+{
+    for (const auto& target : settings) {
+        if (target.color == color) { return target.tolerance; }
+    }
+    return normalizedPixelColorTargets({{color, -1}}).first().tolerance;
+}

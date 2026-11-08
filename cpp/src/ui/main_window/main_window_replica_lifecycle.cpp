@@ -3,6 +3,7 @@
 #include <memory>
 #include <utility>
 #include <QTimer>
+#include <QUuid>
 #include "platform/window_catalog.h"
 #include "ui/pages/replica_list/replica_list_page.h"
 #include "ui/region_capture_controller.h"
@@ -66,11 +67,14 @@ ReplicaWindow* MainWindow::createReplica(const QList<WindowInfo>& sourceOptions)
             return std::make_unique<ReplicaOwner>(std::move(window));
         });
 
+    replicaController_.update(id, [](ReplicaConfig& config) {
+        config.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    });
     windows_.insert(id, createdWindow);
+    createdWindow->setGlobalColorLogicManaged(true);
     createdWindow->setDesktopPetMode(runtimePolicy_.desktopPetMode);
     createdWindow->setPresentationSuppressed(
         runtimePolicy_.presentationSuppressed() || runtimePolicy_.regionCapture);
-    createdWindow->setAdvancedLogicService(advancedLogicService_);
     createdWindow->setRegionPresets(config_.regionPresets);
     createdWindow->setColorRules(config_.colorRules);
     createdWindow->setAutomaticActivationEnabled(
@@ -135,6 +139,7 @@ ReplicaWindow* MainWindow::createReplica(const QList<WindowInfo>& sourceOptions)
     updateFlashAggregate();
     schedulePersistReplicas();
     refreshReplicaListSize();
+    if (!restoringReplicas_) { refreshColorLogicWindows(); }
     return createdWindow;
 }
 
@@ -142,7 +147,8 @@ ReplicaWindow* MainWindow::duplicateReplica(ReplicaId id)
 {
     const auto* original = windows_.value(id);
     if (original == nullptr || !replicaController_.contains(id)) { return nullptr; }
-    const auto config = replicaController_.desiredConfig(id);
+    auto config = replicaController_.desiredConfig(id);
+    config.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     const auto source = original->source();
     QList<WindowInfo> available;
     try { available = windowCatalog_->windows(); }
@@ -202,6 +208,7 @@ void MainWindow::onReplicaClosed(ReplicaId id)
     scheduleReplicaOverlapOrder();
     schedulePersistReplicas();
     refreshReplicaListSize();
+    if (!closing_) { refreshColorLogicWindows(); }
 }
 
 void MainWindow::closeAllReplicas()

@@ -10,3 +10,6 @@
 [[nodiscard]] int addColorRule(AppConfig& config, ColorRule rule);
 [[nodiscard]] bool updateColorRule(AppConfig& config, int number, ColorRule rule);
 [[nodiscard]] bool removeColorRule(AppConfig& config, int number);
+
+// Assign stable window IDs and convert legacy per-window execution slots.
+void migrateWindowColorLogic(AppConfig& config);

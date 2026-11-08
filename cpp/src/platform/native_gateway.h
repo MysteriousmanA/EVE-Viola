@@ -27,6 +27,8 @@ inline constexpr std::uint32_t kExpectedNativeApiVersion = 3;
 struct WindowInfo {
     std::uintptr_t hwnd{};
     QString title;
+    // Native enumeration verifies exefile.exe before returning each EVE window.
+    QString processName{QStringLiteral("exefile.exe")};
 
     friend bool operator==(const WindowInfo&, const WindowInfo&) = default;
 };
@@ -130,6 +132,7 @@ public:
     void setAutomaticTriggerActive(std::uint64_t replicaId, bool active);
     void cancelAutomaticActivation(std::uint64_t replicaId);
     void flushAutomaticActivations();
+    void flushAutomaticActivationsAsync();
     [[nodiscard]] bool activateWindowWithCooldown(
         std::uintptr_t hwnd,
         int cooldownMs,

@@ -1,13 +1,15 @@
 #include "ui/replica_window.h"
 
 #include <QTimer>
+#include <utility>
 #include <QJsonArray>
 #include "config/config_validation.h"
 #include "runtime/runtime_logger.h"
 
-void ReplicaWindow::handleColorLogicTrigger(const ColorLogicEffect& effect)
+void ReplicaWindow::handleColorLogicTrigger(const ColorLogicEffect& effect, int externalRuleNumber)
 {
-    const int ruleNumber = colorLogicEngine_.ruleNumberForSlot(effect.slotIndex);
+    const int ruleNumber = externalRuleNumber > 0 ? externalRuleNumber
+        : colorLogicEngine_.ruleNumberForSlot(effect.slotIndex);
     emit colorLogicTriggered(ruleNumber);
     const QString smallWindowName = QStringLiteral("小窗 #%1").arg(replicaId_);
     const bool hasSourceWindow = source_.has_value() && source_->hwnd != 0;
@@ -53,7 +55,7 @@ void ReplicaWindow::handleColorLogicTrigger(const ColorLogicEffect& effect)
             source_->title);
         QTimer::singleShot(0, this, [this] {
             try {
-                gateway_.flushAutomaticActivations();
+                gateway_.flushAutomaticActivationsAsync();
             } catch (const NativeException& error) {
                 showFailure(QStringLiteral("无法置顶源窗口"), error);
             }
@@ -107,6 +109,12 @@ void ReplicaWindow::handleSourceClick()
                 {QStringLiteral("result"), activationResult},
                 {QStringLiteral("reason"), activationReason},
             });
+        if (!sharedPopupCallbacks_.isEmpty()) {
+            const auto callbacks = std::exchange(sharedPopupCallbacks_, {});
+            setVisible(false);
+            emit visibilityChanged(false);
+            for (const auto& callback : callbacks) { callback(); }
+        }
         if (popupRevealed_) {
             const quint64 revealedFeedbackId = popupRevealedFeedbackId_;
             setVisible(false);

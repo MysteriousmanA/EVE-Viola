@@ -3,6 +3,29 @@
 
 namespace ConfigSerialization
 {
+QJsonArray colorTolerancesToJson(const QList<PixelColorTarget>& targets)
+{
+    QJsonArray array;
+    for (const auto& target : targets) {
+        array.append(QJsonObject{{QStringLiteral("color"), target.color},
+                                 {QStringLiteral("tolerance"), target.tolerance}});
+    }
+    return array;
+}
+
+QList<PixelColorTarget> parseColorTolerances(const QJsonArray& array)
+{
+    QList<PixelColorTarget> targets;
+    for (const auto& value : array) {
+        const auto object = value.toObject();
+        const auto color = object.value(QStringLiteral("color")).toString();
+        if (pixelColorValue(color).isValid()) {
+            targets.append({color, object.value(QStringLiteral("tolerance")).toInt(-1)});
+        }
+    }
+    return targets.isEmpty() ? targets : normalizedPixelColorTargets(targets);
+}
+
 QJsonObject regionPresetToJson(const RegionPreset& preset)
 {
     return {
@@ -12,6 +35,7 @@ QJsonObject regionPresetToJson(const RegionPreset& preset)
         {QStringLiteral("width"), preset.region.width()},
         {QStringLiteral("height"), preset.region.height()},
         {QStringLiteral("statisticsIntervalMs"), preset.statisticsIntervalMs},
+        {QStringLiteral("colorTolerances"), colorTolerancesToJson(preset.colorTolerances)},
     };
 }
 
@@ -32,6 +56,7 @@ QList<RegionPreset> parseRegionPresets(const QJsonArray& array)
                   object.value(QStringLiteral("width")).toInt(),
                   object.value(QStringLiteral("height")).toInt()),
             statisticsIntervalMs,
+            parseColorTolerances(object.value(QStringLiteral("colorTolerances")).toArray()),
         };
         if (!preset.name.isEmpty() && preset.region.width() > 0 && preset.region.height() > 0) {
             result.append(preset);

@@ -17,7 +17,6 @@
 #endif
 
 #include "ui/replica_window.h"
-#include "features/advanced_logic/advanced_logic_service.h"
 
 namespace {
 
@@ -225,173 +224,10 @@ private slots:
         QCOMPARE(window.activeColorLogicSlot(), 2);
     }
 
-    void switchingModeCancelsDeferredAdvancedEffects()
-    {
-        AdvancedLogicService service;
-        ColorRule rule;
-        rule.number = 1;
-        rule.triggerCondition1 = {QStringLiteral("红色"), QStringLiteral(">=1")};
-        rule.postTriggerAction = PostTriggerAction::Jump;
-        ColorRule second = rule;
-        second.number = 2;
-        WhitelistSequence sequence;
-        sequence.timeoutMs = 100;
-        sequence.nodes = {{1, WhitelistNodeEffect::Suppress, {}}, {2, WhitelistNodeEffect::Suppress, {}}};
-        service.setConfiguration({true, {sequence}}, {rule, second});
-        ReplicaWindow window(82, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
-        window.setStatisticsInterval(0);
-        window.setColorRules({rule, second});
-        window.setColorLogicSlot(1, 1);
-        window.setColorLogicSlot(2, 2);
-        window.setColorLogicEnabled(true);
-        window.setAdvancedLogicService(&service);
-        QSignalSpy effects(&window, &ReplicaWindow::colorLogicTriggered);
-        window.evaluateColorLogic({0, 1, 0});
-        QCOMPARE(effects.count(), 0);
-        window.setDesktopPetMode(DesktopPetMode::Fish);
-        QTest::qWait(130);
-        QCOMPARE(effects.count(), 0);
-        QCOMPARE(window.activeColorLogicSlot(), 1);
-        QVERIFY(!window.isFlashActive());
-    }
 
-    void advancedSequenceCanObserveRepeatedEdgesFromOneWindowWhileWaiting()
-    {
-        AdvancedLogicService service;
-        ColorRule rule;
-        rule.number = 1;
-        rule.triggerCondition1 = {QStringLiteral("红色"), QStringLiteral(">=1")};
-        rule.postTriggerAction = PostTriggerAction::Loop;
-        WhitelistSequence sequence;
-        sequence.nodes = {{1, WhitelistNodeEffect::Suppress, {}}, {1, WhitelistNodeEffect::Suppress, {}}};
-        service.setConfiguration({true, {sequence}}, {rule});
-        ReplicaWindow window(75, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
-        window.setStatisticsInterval(0);
-        window.setColorRules({rule});
-        window.setColorLogicSlot(1, 1);
-        window.setColorLogicEnabled(true);
-        window.setAdvancedLogicService(&service);
-        window.setAutomaticActivationEnabled(false);
-        QSignalSpy effects(&window, &ReplicaWindow::colorLogicTriggered);
-        QSignalSpy decisions(&service, &AdvancedLogicService::eventResolved);
-        window.evaluateColorLogic({0, 1, 0});
-        QCOMPARE(effects.size(), 0);
-        window.evaluateColorLogic({0, 0, 0});
-        window.evaluateColorLogic({0, 1, 0});
-        QCOMPARE(window.colorLogicTriggerCount(1), 2);
-        QCOMPARE(decisions.size(), 2);
-        QCOMPARE(decisions[0][1].toBool(), false);
-        QCOMPARE(decisions[1][1].toBool(), false);
-        QCOMPARE(effects.size(), 0);
-        QVERIFY(!window.isFlashActive());
-    }
 
-    void advancedWhitelistImmediatelyExecutesWarningAndSuppressesAccelerationEffects()
-    {
-        AdvancedLogicService service;
-        ColorRule warning;
-        warning.number = 1;
-        warning.triggerCondition1 = {QStringLiteral("红色"), QStringLiteral(">=1")};
-        warning.priority = ColorRulePriority::Immediate;
-        warning.postTriggerAction = PostTriggerAction::ReverseWait;
-        ColorRule speed = warning;
-        speed.number = 2;
-        speed.priority = ColorRulePriority::Normal;
-        speed.postTriggerAction = PostTriggerAction::Jump;
-        const QList<ColorRule> rules{warning, speed};
-        WhitelistSequence sequence;
-        sequence.nodes = {{1, WhitelistNodeEffect::Suppress, {}}, {2, WhitelistNodeEffect::Suppress, {}}};
-        service.setConfiguration({true, {sequence}}, rules);
-        ReplicaWindow local(71, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
-        ReplicaWindow acceleration(72, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
-        for (auto* window : {&local, &acceleration}) {
-            window->setStatisticsInterval(0);
-            window->setColorRules(rules);
-            window->setAdvancedLogicService(&service);
-            window->selectSource({123, QStringLiteral("EVE - Alpha")});
-            window->setAutomaticActivationEnabled(false);
-            window->setColorLogicEnabled(true);
-        }
-        local.setColorLogicSlot(1, 1);
-        acceleration.setColorLogicSlot(1, 2);
-        acceleration.setColorLogicSlot(2, 1);
-        QSignalSpy warningEffects(&local, &ReplicaWindow::colorLogicTriggered);
-        QSignalSpy speedEffects(&acceleration, &ReplicaWindow::colorLogicTriggered);
-        local.evaluateColorLogic({0, 1, 0});
-        QCOMPARE(warningEffects.size(), 1);
-        acceleration.evaluateColorLogic({0, 1, 0});
-        QCOMPARE(speedEffects.size(), 0);
-        QVERIFY(!acceleration.isFlashActive());
-        QCOMPARE(acceleration.activeColorLogicSlot(), 1);
-        QCOMPARE(warningEffects.size(), 1);
-        // Sustained pixels do not replay a suppressed loop; a new, isolated edge does execute.
-        acceleration.evaluateColorLogic({0, 1, 0});
-        QCOMPARE(speedEffects.size(), 0);
-        acceleration.evaluateColorLogic({0, 0, 0});
-        acceleration.evaluateColorLogic({0, 1, 0});
-        QCOMPARE(speedEffects.size(), 1);
-        QCOMPARE(acceleration.activeColorLogicSlot(), 2);
-    }
 
-    void disablingPendingAdvancedRuleRejectsLateTimeout()
-    {
-        AdvancedLogicService service;
-        ColorRule first;
-        first.number = 1;
-        first.triggerCondition1 = {QStringLiteral("红色"), QStringLiteral(">=1")};
-        first.postTriggerAction = PostTriggerAction::Jump;
-        ColorRule second = first;
-        second.number = 2;
-        WhitelistSequence sequence;
-        sequence.timeoutMs = 100;
-        sequence.nodes = {{1, WhitelistNodeEffect::Suppress, {}}, {2, WhitelistNodeEffect::Suppress, {}}};
-        service.setConfiguration({true, {sequence}}, {first, second});
-        ReplicaWindow window(73, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
-        window.setStatisticsInterval(0);
-        window.setColorRules({first, second});
-        window.setColorLogicSlot(1, 1);
-        window.setColorLogicSlot(2, 2);
-        window.setColorLogicEnabled(true);
-        window.setAdvancedLogicService(&service);
-        window.setAutomaticActivationEnabled(false);
-        QSignalSpy effects(&window, &ReplicaWindow::colorLogicTriggered);
-        window.evaluateColorLogic({0, 1, 0});
-        QCOMPARE(effects.size(), 0);
-        QVERIFY(!window.isFlashActive());
-        window.setColorLogicEnabled(false);
-        QTest::qWait(130);
-        QCOMPARE(effects.size(), 0);
-        QCOMPARE(window.activeColorLogicSlot(), 1);
-    }
 
-    void unmatchedAdvancedPrefixReleasesItsOriginalEffectAfterTimeout()
-    {
-        AdvancedLogicService service;
-        ColorRule first;
-        first.number = 1;
-        first.triggerCondition1 = {QStringLiteral("红色"), QStringLiteral(">=1")};
-        first.postTriggerAction = PostTriggerAction::Jump;
-        ColorRule second = first;
-        second.number = 2;
-        WhitelistSequence sequence;
-        sequence.timeoutMs = 100;
-        sequence.nodes = {{1, WhitelistNodeEffect::Suppress, {}}, {2, WhitelistNodeEffect::Suppress, {}}};
-        service.setConfiguration({true, {sequence}}, {first, second});
-        ReplicaWindow window(74, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
-        window.setStatisticsInterval(0);
-        window.setColorRules({first, second});
-        window.setColorLogicSlot(1, 1);
-        window.setColorLogicSlot(2, 2);
-        window.setColorLogicEnabled(true);
-        window.setAdvancedLogicService(&service);
-        window.setAutomaticActivationEnabled(false);
-        QSignalSpy effects(&window, &ReplicaWindow::colorLogicTriggered);
-        window.evaluateColorLogic({0, 1, 0});
-        QCOMPARE(effects.size(), 0);
-        QCOMPARE(window.activeColorLogicSlot(), 1);
-        QTRY_COMPARE_WITH_TIMEOUT(effects.size(), 1, 500);
-        QCOMPARE(window.activeColorLogicSlot(), 2);
-    }
 
     void customRuleColorIsCapturedEvenWhenItIsNotInTheDisplayColors()
     {
@@ -601,7 +437,7 @@ private slots:
         QCOMPARE(state_.updateCount, updatesAfterClose);
     }
 
-    void thumbnailRenewalSkipsHiddenMinimizedAndSourceNameViews()
+    void thumbnailRenewalSkipsHiddenAndMinimizedViews()
     {
         ReplicaWindow window(7, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
         window.setStatisticsInterval(0);
@@ -617,13 +453,7 @@ private slots:
         QCOMPARE(state_.createCount, createsBefore);
 
         window.show();
-        window.setSourceNameVisible(true);
         createsBefore = state_.createCount;
-        window.renewThumbnail();
-        QCOMPARE(state_.createCount, createsBefore);
-        QCOMPARE(state_.lastVisible, 0);
-
-        window.setSourceNameVisible(false);
         window.showMinimized();
         QCoreApplication::processEvents();
         QVERIFY(window.isMinimized());
@@ -708,7 +538,6 @@ private slots:
         ReplicaWindow window(1, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
         window.show();
         window.selectSource(WindowInfo{123, QStringLiteral("EVE - Alpha")});
-        window.setSourceNameVisible(true);
 
         QTest::mouseClick(
             &window,
@@ -801,19 +630,6 @@ private slots:
         QCOMPARE(state_.activateCount, 0);
     }
 
-    void sourceNameModePaintsBlackBackdrop()
-    {
-        ReplicaWindow window(1, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
-        window.resize(360, 203);
-        window.show();
-        window.selectSource(WindowInfo{123, QStringLiteral("EVE - MysteriousmanA")});
-        window.setSourceNameVisible(true);
-        QCoreApplication::processEvents();
-
-        const QImage snapshot = window.grab().toImage();
-        QCOMPARE(snapshot.pixelColor(20, window.height() / 2), QColor(5, 9, 12));
-    }
-
     void sourceSizeFailureDestroysNewThumbnail()
     {
         state_.sourceStatus = -7;
@@ -834,7 +650,6 @@ private slots:
             ++closedCount;
         });
         QSignalSpy unavailable(&window, &ReplicaWindow::sourceUnavailable);
-        window.setSourceNameVisible(true);
 
         window.selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
 
@@ -1638,6 +1453,20 @@ private slots:
         QTest::mouseClick(&window, Qt::MiddleButton);
         QCOMPARE(window.activeColorLogicSlot(), 2);
         QCOMPARE(slotChanged.count(), 3);
+    }
+
+    void sharedLogicBorderAndMiddleClickUseRuntimeSwitch()
+    {
+        ReplicaWindow window(1, *gateway_, *statisticsCoordinator_, *audioFeedbackManager_);
+        window.setGlobalColorLogicManaged(true);
+        QSignalSpy toggleRequested(&window, &ReplicaWindow::sharedLogicToggleRequested);
+        window.setSharedLogicBorderColor(QColor(255, 80, 80));
+        QCOMPARE(window.borderColor(), QColor(255, 80, 80));
+        QTest::mouseClick(&window, Qt::MiddleButton);
+        QCOMPARE(toggleRequested.count(), 1);
+        QCOMPARE(window.activeColorLogicSlot(), 1);
+        window.setSharedLogicBorderColor({});
+        QCOMPARE(window.borderColor(), QColor(255, 255, 255));
     }
 
     void middleClickDoesNotActivateOrRaiseReplica()

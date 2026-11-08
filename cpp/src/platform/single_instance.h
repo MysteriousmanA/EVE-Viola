@@ -4,7 +4,7 @@
 
 #include <QString>
 
-class QLocalServer;
+class QWinEventNotifier;
 
 [[nodiscard]] QString singleInstanceKeyForApplication(
     const QString& applicationFilePath);
@@ -29,11 +29,12 @@ public:
     void setActivationHandler(std::function<void()> handler);
 
 private:
-    void acceptConnections();
+    void handleActivation();
 
     QString key_;
     QString error_;
-    QLocalServer* server_{};
+    QWinEventNotifier* activationNotifier_{};
+    void* activationEventHandle_{};
     void* mutexHandle_{};
     State state_{State::Error};
     bool activationPending_{false};

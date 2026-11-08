@@ -50,9 +50,8 @@ void MainWindow::buildWindowLayout()
     tabs->addTab(
         makeScrollablePage(buildColorRulePage(), QStringLiteral("colorRulePageScroll")),
         QStringLiteral("图色逻辑"));
-    tabs->addTab(
-        makeScrollablePage(buildAdvancedLogicPage(), QStringLiteral("advancedLogicPageScroll")),
-        QStringLiteral("高级逻辑"));
+    tabs->addTab(makeScrollablePage(buildLogicListPage(), QStringLiteral("logicListPageScroll")),
+        QStringLiteral("逻辑列表"));
     tabs->addTab(
         makeScrollablePage(buildQuickSwitchPage(), QStringLiteral("quickSwitchPageScroll")),
         QStringLiteral("快捷切屏"));

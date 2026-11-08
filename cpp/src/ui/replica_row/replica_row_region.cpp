@@ -146,16 +146,19 @@ QString ReplicaRow::currentRegionFilterName() const
 
 void ReplicaRow::setCurrentRegionPresetName(const QString& name)
 {
+    const auto previousName = currentRegionPresetName_;
     const QSignalBlocker blocker(regionPresetCombo_);
     for (int index = 0; index < regionPresets_.size(); ++index) {
         if (regionPresets_[index].name.compare(name, Qt::CaseInsensitive) == 0) {
             currentRegionPresetName_ = regionPresets_[index].name;
             regionPresetCombo_->setCurrentIndex(index + 1);
+            if (previousName != currentRegionPresetName_) { emit regionPresetNameChanged(); }
             return;
         }
     }
     currentRegionPresetName_.clear();
     regionPresetCombo_->setCurrentIndex(0);
+    if (previousName != currentRegionPresetName_) { emit regionPresetNameChanged(); }
 }
 
 void ReplicaRow::syncRegionPresetCombo(const QString& preferredName)

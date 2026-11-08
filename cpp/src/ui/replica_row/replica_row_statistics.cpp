@@ -17,16 +17,7 @@ void ReplicaRow::initializeStatisticsControls()
     pixelStatisticsHost_ = new QWidget(this);
     pixelStatisticsHost_->installEventFilter(this);
     new QGridLayout(pixelStatisticsHost_);
-    statisticsColorsButton_ = new QPushButton(QStringLiteral("统计颜色…"), this);
-    statisticsColorsButton_->setObjectName(QStringLiteral("statisticsColors"));
     setStatisticsColors(statisticsColors_);
-    connect(statisticsColorsButton_, &QPushButton::clicked, this, [this] {
-        const auto colors = promptStatisticsColors(this, statisticsColors_);
-        if (colors && *colors != statisticsColors_) {
-            setStatisticsColors(*colors);
-            emit statisticsColorsChanged(statisticsColors_);
-        }
-    });
 
     statisticsInterval_ = new ScrollPassthroughCombo;
     statisticsInterval_->setObjectName(QStringLiteral("statisticsInterval"));
@@ -80,6 +71,7 @@ void ReplicaRow::setStatisticsColors(const QList<PixelColorTarget>& colors)
         layout->addWidget(label, static_cast<int>(index / 3), static_cast<int>(index % 3));
         pixelStatisticsLabels_.append(label);
     }
+    refreshStatisticsLabels();
 }
 
 void ReplicaRow::setColorStatistics(const PixelStatistics& statistics)
@@ -90,8 +82,20 @@ void ReplicaRow::setColorStatistics(const PixelStatistics& statistics)
 
 void ReplicaRow::refreshStatisticsLabels()
 {
-    // Hidden pages and collapsed cards retain only the latest result. Rule
-    // evaluation stays in ReplicaWindow and is independent of label rendering.
+    if (collapsedPixelStatistics_ && collapsedPixelStatistics_->isVisible()) {
+        const auto countText = [](qsizetype count) {
+            return count < 0 ? QStringLiteral("--") : QString::number(count);
+        };
+        const QString text = QStringLiteral("红色像素：%1    白色像素：%2    蓝色像素：%3")
+            .arg(countText(latestStatistics_ ? latestStatistics_->redCount : -1),
+                 countText(latestStatistics_ ? latestStatistics_->whiteCount : -1),
+                 countText(latestStatistics_ ? latestStatistics_->blueCount : -1));
+        if (collapsedPixelStatistics_->text() != text) {
+            collapsedPixelStatistics_->setText(text);
+        }
+    }
+    // Hidden pages retain only the latest result. Rule evaluation stays in
+    // ReplicaWindow and is independent of label rendering.
     if (!pixelStatisticsHost_->isVisible()) { return; }
     for (qsizetype index = 0; index < statisticsColors_.size(); ++index) {
         const auto& target = statisticsColors_[index];
@@ -111,7 +115,8 @@ void ReplicaRow::clearPixelStatistics()
 
 bool ReplicaRow::eventFilter(QObject* watched, QEvent* event)
 {
-    if (watched == pixelStatisticsHost_ && event->type() == QEvent::Show) {
+    if ((watched == pixelStatisticsHost_ || watched == collapsedPixelStatistics_)
+        && event->type() == QEvent::Show) {
         refreshStatisticsLabels();
     }
     return QFrame::eventFilter(watched, event);

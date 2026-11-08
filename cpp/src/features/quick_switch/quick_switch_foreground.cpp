@@ -48,3 +48,14 @@ bool QuickSwitchService::isForegroundWindow(quintptr hwnd) const
     return false;
 #endif
 }
+
+void QuickSwitchService::continueRadialHold(quint64 sessionId, quintptr foregroundHwnd)
+{
+#ifdef Q_OS_WIN
+    impl_->continuedRadialForeground.store(foregroundHwnd, std::memory_order_relaxed);
+    impl_->continuedRadialSession.store(sessionId, std::memory_order_release);
+#else
+    Q_UNUSED(sessionId);
+    Q_UNUSED(foregroundHwnd);
+#endif
+}

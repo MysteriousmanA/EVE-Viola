@@ -24,7 +24,7 @@ QWidget* MainWindow::buildPagePartitionPage()
 void MainWindow::setupPagePartitionEveMonitoring()
 {
     windowCatalog_->setMonitoring(config_.restoreWindowsWithGame
-        || config_.pagePartition.onlyShowWhenEveDetected);
+        || config_.pagePartition.onlyShowWhenEveDetected || !config_.logicBindings.isEmpty());
     if (config_.pagePartition.onlyShowWhenEveDetected && pagePartitionPage_) {
         pagePartitionPage_->setEveClientPresent(false);
         updatePagePartitionEvePresence();

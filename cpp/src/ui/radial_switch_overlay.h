@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QList>
+#include <QHash>
+#include <QStringList>
 #include <QPoint>
 #include <QRect>
 #include <QWidget>
@@ -29,6 +31,8 @@ public:
     void flashPetAccount(std::uintptr_t hwnd);
     void updateCursorPosition(const QPoint& globalPosition);
     [[nodiscard]] int selectedIndex() const noexcept;
+    void setTriggerLabels(const QHash<quintptr, QStringList>& labels);
+    QStringList triggerLabels(quintptr hwnd) const { return triggerLabels_.value(hwnd); }
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -44,6 +48,7 @@ private:
     void updatePetRingMask();
 
     QList<WindowInfo> clients_;
+    QHash<quintptr, QStringList> triggerLabels_;
     QRect monitorGeometry_;
     QRect screenGeometry_;
     QPoint anchorGlobal_;

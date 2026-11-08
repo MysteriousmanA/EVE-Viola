@@ -1,3 +1,4 @@
+#include "ui/common/editor_dialogs.h"
 #include "ui/desktop_pet_page.h"
 
 #include <QFileDialog>
@@ -36,7 +37,7 @@ void DesktopPetPage::connectEditorSignals(QLabel* zoomValue, QLabel* sizeValue)
 
 void DesktopPetPage::chooseImage()
 {
-    const QString path = QFileDialog::getOpenFileName(
+    const QString path = EditorDialogs::getOpenFileName(
         this,
         QStringLiteral("选择桌宠头像"),
         QString{},

@@ -3,9 +3,7 @@
 #include <utility>
 
 #include <QCloseEvent>
-#include <QFont>
 #include <QLabel>
-#include <QPalette>
 #include <QSizeGrip>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -47,20 +45,6 @@ ReplicaWindow::ReplicaWindow(
     layout->addWidget(emptyLabel_, 1);
     layout->addWidget(resizeGrip, 0, Qt::AlignRight | Qt::AlignBottom);
 
-    sourceNameOverlay_ = new QLabel(this);
-    sourceNameOverlay_->setObjectName(QStringLiteral("sourceNameOverlay"));
-    sourceNameOverlay_->setAlignment(Qt::AlignCenter);
-    sourceNameOverlay_->setAttribute(Qt::WA_TransparentForMouseEvents);
-    sourceNameOverlay_->setMargin(8);
-    QPalette overlayPalette = sourceNameOverlay_->palette();
-    overlayPalette.setColor(QPalette::WindowText, QColor(255, 140, 0));
-    sourceNameOverlay_->setPalette(overlayPalette);
-    QFont overlayFont = sourceNameOverlay_->font();
-    overlayFont.setBold(true);
-    overlayFont.setPointSize(18);
-    sourceNameOverlay_->setFont(overlayFont);
-    sourceNameOverlay_->hide();
-
     initializeStatistics();
     initializeRegionCapture();
     initializeInput();
@@ -71,7 +55,7 @@ ReplicaWindow::ReplicaWindow(
 
 ReplicaWindow::~ReplicaWindow()
 {
-    cancelAdvancedLogic();
+    colorLogicEngine_.resetNotificationObservation();
     statisticsCoordinator_.cancelFrame(replicaId_);
     gateway_.cancelAutomaticActivation(replicaId_);
     statisticsCoordinator_.remove(replicaId_);
@@ -90,7 +74,7 @@ QLabel* ReplicaWindow::emptyLabel() const noexcept
 
 void ReplicaWindow::closeEvent(QCloseEvent* event)
 {
-    cancelAdvancedLogic();
+    colorLogicEngine_.resetNotificationObservation();
     frameCapturePending_ = false;
     statisticsCoordinator_.cancelFrame(replicaId_);
     sourceCheckTimer_->stop();

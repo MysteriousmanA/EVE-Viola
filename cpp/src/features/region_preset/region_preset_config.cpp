@@ -1,4 +1,5 @@
 #include "features/region_preset/region_preset_config.h"
+#include "features/color_rule/logic_binding_plan.h"
 
 bool addRegionPreset(AppConfig& config, RegionPreset preset)
 {
@@ -25,6 +26,22 @@ bool renameRegionPreset(AppConfig& config, int index, const QString& name)
         if (current != index &&
             config.regionPresets[current].name.compare(trimmed, Qt::CaseInsensitive) == 0) {
             return false;
+        }
+    }
+    const QString oldId = logicRegionPresetId(config.regionPresets[index].name);
+    const QString newId = logicRegionPresetId(trimmed);
+    for (auto& rule : config.colorRules) {
+        for (auto& condition : rule.windowConditions) {
+            if (condition.replicaId == oldId) { condition.replicaId = newId; }
+        }
+        if (rule.targetReplicaId == oldId) { rule.targetReplicaId = newId; }
+        for (auto& setting : rule.windowSwitches) {
+            if (setting.replicaId == oldId) { setting.replicaId = newId; }
+        }
+    }
+    for (auto& binding : config.logicBindings) {
+        if (binding.windowIds.contains(oldId)) {
+            binding.windowIds.insert(newId, binding.windowIds.take(oldId));
         }
     }
     config.regionPresets[index].name = trimmed;

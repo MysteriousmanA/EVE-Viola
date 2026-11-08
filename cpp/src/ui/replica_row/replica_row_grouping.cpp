@@ -82,6 +82,7 @@ void ReplicaRow::setCollapsed(bool collapsed)
     collapseButton_->setChecked(collapsed);
     badge_->setVisible(!collapsed);
     contentHost_->setVisible(!collapsed);
+    collapsedPixelStatistics_->setVisible(collapsed);
     closeButton_->setVisible(!collapsed);
     copyButton_->setVisible(!collapsed);
     syncActionRow_->setVisible(collapsed);

@@ -17,7 +17,7 @@ void ReplicaWindow::initializeSourceMonitoring()
 void ReplicaWindow::renewThumbnail()
 {
     if (!thumbnail_ || !source_ || !isVisible() || isMinimized()
-        || sourceNameVisible_ || capturingRegion_ || frameCapturePending_ || closedNotified_) {
+        || capturingRegion_ || frameCapturePending_ || closedNotified_) {
         updateThumbnail();
         return;
     }
@@ -86,7 +86,7 @@ void ReplicaWindow::selectSourceFull(const WindowInfo& source)
 
 void ReplicaWindow::selectSourceImpl(const WindowInfo& source, bool preserveRegion)
 {
-    cancelAdvancedLogic();
+    colorLogicEngine_.resetNotificationObservation();
     cancelRegionCapture();
     gateway_.cancelAutomaticActivation(replicaId_);
     statisticsCoordinator_.remove(replicaId_);
@@ -107,11 +107,6 @@ void ReplicaWindow::selectSourceImpl(const WindowInfo& source, bool preserveRegi
         sourceSize_ = sourceSize;
         source_ = source;
         emptyLabel_->hide();
-        sourceNameOverlay_->setText(sourceNameFromTitle(source.title));
-        positionSourceNameOverlay();
-        sourceNameOverlay_->setVisible(
-            sourceNameVisible_ && !sourceNameOverlay_->text().isEmpty());
-        sourceNameOverlay_->raise();
         bool regionDiscarded = false;
         if (previousRegion.has_value()) {
             const QRect bounds(0, 0, sourceSize_.width(), sourceSize_.height());
@@ -135,7 +130,6 @@ void ReplicaWindow::selectSourceImpl(const WindowInfo& source, bool preserveRegi
         source_.reset();
         gateway_.cancelAutomaticActivation(replicaId_);
         sourceCheckTimer_->stop();
-        sourceNameOverlay_->hide();
         statisticsCoordinator_.remove(replicaId_);
         emit pixelStatisticsUnavailable();
         showFailure(QStringLiteral("无法显示窗口"), error);
@@ -154,18 +148,17 @@ void ReplicaWindow::updateThumbnail()
         // DWM thumbnails are composed above the QWidget backing store. Once a
         // capture starts, showing the live thumbnail again would cover the
         // frozen QImage and make the selection appear to resume playing.
-        const bool visible = !sourceNameVisible_ && !capturingRegion_;
+        const bool visible = !capturingRegion_;
         thumbnail_->update(source, destination, 255, visible);
     } catch (const NativeException&) {
         if (popupRevealed_) {
             return;
         }
         const QString unavailableTitle = source_.has_value() ? source_->title : QString{};
-        cancelAdvancedLogic();
+        colorLogicEngine_.resetNotificationObservation();
         thumbnail_.reset();
         source_.reset();
         sourceCheckTimer_->stop();
-        sourceNameOverlay_->hide();
         statisticsCoordinator_.remove(replicaId_);
         emit pixelStatisticsUnavailable();
         emptyLabel_->setText(

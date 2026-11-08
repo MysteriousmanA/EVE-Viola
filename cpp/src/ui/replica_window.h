@@ -31,7 +31,6 @@ class QResizeEvent;
 class QShowEvent;
 class QTimer;
 class QWheelEvent;
-class AdvancedLogicService;
 
 class ReplicaWindow final : public QWidget {
     Q_OBJECT
@@ -87,13 +86,18 @@ public:
     [[nodiscard]] int colorLogicTriggerCount(int slotIndex) const noexcept;
     [[nodiscard]] int colorLogicSlotRule(int slotIndex) const noexcept;
     [[nodiscard]] QColor colorLogicSlotColor(int slotIndex) const noexcept;
-    [[nodiscard]] bool sourceNameVisible() const noexcept;
     [[nodiscard]] QColor borderColor() const noexcept;
     [[nodiscard]] bool isFlashActive() const noexcept;
     [[nodiscard]] bool raiseOnClickEnabled() const noexcept;
     [[nodiscard]] bool automaticActivationEnabled() const noexcept;
     [[nodiscard]] int automaticActivationCooldownMs() const noexcept;
-    void setAdvancedLogicService(AdvancedLogicService* service);
+    void setGlobalColorLogicManaged(bool managed) { globalColorLogicManaged_ = managed; }
+    void setLogicRequiredColors(const QList<PixelColorTarget>& colors);
+    void executeSharedColorLogic(int ruleNumber, quint64 token, bool popup, std::function<void()> completed);
+    void cancelSharedColorLogic(quint64 token);
+    void setSharedFlashActive(bool active);
+    void setSharedLogicBorderColor(const QColor& color);
+
 
 public slots:
     void beginRegionCapture();
@@ -107,7 +111,6 @@ public slots:
     void setColorLogicEnabled(bool enabled);
     void setActiveColorLogicSlot(int slotIndex);
     void setColorLogicSlotColor(int slotIndex, const QColor& color);
-    void setSourceNameVisible(bool visible);
     void setGlobalFlashState(bool dimmed);
     void setRaiseOnClickEnabled(bool enabled);
     void setAutomaticActivationEnabled(bool enabled);
@@ -135,6 +138,7 @@ signals:
     void activeColorLogicSlotChanged(int slotIndex);
     void visibilityChanged(bool visible);
     void flashStateChanged(bool active);
+    void sharedLogicToggleRequested();
     void positionChanged(const QPoint& pos);
     void sizeChanged(const QSize& size);
 
@@ -192,14 +196,10 @@ private:
     void acceptFrozenFrame(const QImage& frame);
     void evaluateColorLogic(const PixelStatistics& statistics);
     void handleSourceClick();
-    void handleColorLogicTrigger(const ColorLogicEffect& effect);
+    void handleColorLogicTrigger(const ColorLogicEffect& effect, int externalRuleNumber = 0);
     void applyColorLogicEffects(const QList<ColorLogicEffect>& effects);
-    void cancelAdvancedLogic();
-    void drainAdvancedLogic();
     void applyColorLogicBorder();
     void toggleActiveColorLogicSlot();
-    void positionSourceNameOverlay();
-    [[nodiscard]] static QString sourceNameFromTitle(const QString& title);
 
     ReplicaId replicaId_{};
     NativeGateway& gateway_;
@@ -210,8 +210,6 @@ private:
     std::optional<WindowInfo> source_;
     QSize sourceSize_;
     QLabel* emptyLabel_{};
-    QLabel* sourceNameOverlay_{};
-    bool sourceNameVisible_{false};
     QPoint dragOrigin_;
     double contentAspectRatio_{0.0};
     QTimer* leftPressTimer_{};
@@ -236,18 +234,14 @@ private:
     PixelStatistics lastStatistics_;
     QList<PixelColorTarget> statisticsColors_{defaultPixelColorTargets()};
 
+    bool globalColorLogicManaged_{};
+    QList<PixelColorTarget> logicRequiredColors_;
+    QHash<quint64, std::function<void()>> sharedPopupCallbacks_;
     ColorLogicEngine colorLogicEngine_;
-    QPointer<AdvancedLogicService> advancedLogicService_;
-    struct PendingAdvancedFeedback {
-        ColorLogicEffect effect;
-        PixelStatistics statistics;
-    };
-    QHash<quint64, PendingAdvancedFeedback> pendingAdvancedFeedbacks_;
-    QList<quint64> approvedAdvancedFeedbacks_;
-    bool drainingAdvancedLogic_{};
     QList<ColorRule> appliedColorRules_;
     QColor colorLogicSlotColor_[2]{QColor(46, 204, 64), QColor(41, 121, 255)};
     QColor borderColor_{QColor(255, 255, 255)};
+    QColor sharedLogicBorderColor_;
     quint64 nextAudioRequestToken_{};
     quint64 activeAudioRequestToken_{};
     quint64 activeAudioFeedbackId_{};

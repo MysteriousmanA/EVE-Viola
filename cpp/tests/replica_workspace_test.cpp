@@ -118,7 +118,8 @@ private slots:
 
         QVERIFY(workspace.remove(1));
         QVERIFY(!workspace.contains(1));
-        const ReplicaConfig emptyConfig;
+        ReplicaConfig emptyConfig;
+        emptyConfig.id.clear();
         QCOMPARE(workspace.desiredConfig(1), emptyConfig);
         QVERIFY(!workspace.remove(1));
         workspace.clear();

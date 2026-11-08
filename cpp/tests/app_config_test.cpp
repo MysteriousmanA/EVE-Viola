@@ -11,6 +11,23 @@ class AppConfigTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void retiredAdvancedLogicConfigurationIsIgnored()
+    {
+        QTemporaryDir directory;
+        QFile retired(directory.filePath(QStringLiteral("advancedLogic.json")));
+        QVERIFY(retired.open(QIODevice::WriteOnly));
+        const QByteArray obsolete("{broken retired configuration");
+        retired.write(obsolete);
+        retired.close();
+        JsonConfigStore store(directory.path());
+        AppConfig config;
+        QString error;
+        QVERIFY2(store.load(config, &error), qPrintable(error));
+        QVERIFY2(store.save(config, &error), qPrintable(error));
+        QVERIFY(retired.open(QIODevice::ReadOnly));
+        QCOMPARE(retired.readAll(), obsolete);
+    }
+
     void statisticsColorsAndRuleToleranceRoundTripInReplicasAndPresets()
     {
         QTemporaryDir directory;
@@ -136,7 +153,6 @@ private slots:
             {1, 2},
             true,
             2,
-            true,
             false,
             false,
             QPoint(300, 200),
@@ -170,7 +186,6 @@ private slots:
             {0, 0},
             false,
             1,
-            false,
             true,
             false,
             QPoint(10, 10),
@@ -656,8 +671,10 @@ private slots:
             TriggerFeedback::Audio);
         QVERIFY(!triggerFeedbackFromName(QStringLiteral("声音")).has_value());
         QCOMPARE(postTriggerActionName(PostTriggerAction::Loop), QStringLiteral("正向循环"));
-        QCOMPARE(postTriggerActionName(PostTriggerAction::Jump), QStringLiteral("跳转至另一状态"));
+        QCOMPARE(postTriggerActionName(PostTriggerAction::Jump), QStringLiteral("切换至另一状态"));
         QCOMPARE(postTriggerActionName(PostTriggerAction::ReverseWait), QStringLiteral("反向等待"));
+        QCOMPARE(postTriggerActionFromName(QStringLiteral("切换至另一状态")).value_or(PostTriggerAction::Loop),
+            PostTriggerAction::Jump);
         QCOMPARE(
             postTriggerActionFromName(QStringLiteral("跳转至另一状态")).value_or(PostTriggerAction::Loop),
             PostTriggerAction::Jump);
@@ -673,6 +690,34 @@ private slots:
         QCOMPARE(
             postTriggerActionFromName(QStringLiteral("反向等待")).value_or(PostTriggerAction::Jump),
             PostTriggerAction::ReverseWait);
+    }
+
+    void disjointBoundsParseEvaluateAndPersist()
+    {
+        const auto outside = parseTriggerCondition(QStringLiteral("<10 或 >100"));
+        QVERIFY(outside);
+        QCOMPARE(outside->relation, TriggerConditionRelation::Or);
+        QCOMPARE(outside->toString(), QStringLiteral(">100|<10"));
+        for (double value : {0.0, 9.0, 101.0}) { QVERIFY(evaluateTriggerCondition(*outside, value)); }
+        for (double value : {10.0, 50.0, 100.0}) { QVERIFY(!evaluateTriggerCondition(*outside, value)); }
+        QCOMPARE(parseTriggerCondition(outside->toString()).value(), outside.value());
+        QCOMPARE(parseTriggerCondition(QStringLiteral(">=100||<=10"))->relation, TriggerConditionRelation::Or);
+        const auto inclusive = parseTriggerCondition(QStringLiteral(">=100|<=10"));
+        QVERIFY(evaluateTriggerCondition(*inclusive, 10)); QVERIFY(evaluateTriggerCondition(*inclusive, 100));
+        const auto single = parseTriggerCondition(QStringLiteral("<10")).value();
+        auto singleOr = single; singleOr.relation = TriggerConditionRelation::Or;
+        QVERIFY(!evaluateTriggerCondition(singleOr, 50));
+        QVERIFY(!parseTriggerCondition(QStringLiteral("<10|<100")));
+        QVERIFY(!parseTriggerCondition(QStringLiteral(">100|<10&>50")));
+        QTemporaryDir directory;
+        AppConfig config;
+        ColorRule rule; rule.number = 1;
+        rule.windowConditions = {{QStringLiteral("红色"), outside->toString(), -1, "A"}};
+        config.colorRules = {rule};
+        JsonConfigStore store(directory.path()); QString error;
+        QVERIFY2(store.save(config, &error), qPrintable(error));
+        AppConfig restored; QVERIFY2(store.load(restored, &error), qPrintable(error));
+        QCOMPARE(restored.colorRules.first().windowConditions, rule.windowConditions);
     }
 
     void evaluateTriggerConditionAppliesBounds()

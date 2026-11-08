@@ -114,6 +114,8 @@ void parseQuickSwitchConfig(const QJsonObject& object, AppConfig& config)
                                  : kDefaultRadialSwitchKey;
     config.radialAccounts =
         parseRadialAccounts(object.value(QStringLiteral("radialAccounts")).toArray());
+    config.radialSwitchRecentSeconds = qBound(1,
+        object.value(QStringLiteral("radialSwitchRecentSeconds")).toInt(10), 3600);
 }
 QJsonObject quickSwitchConfigToJson(const AppConfig& config)
 {
@@ -128,6 +130,7 @@ QJsonObject quickSwitchConfigToJson(const AppConfig& config)
         {QStringLiteral("previousClientKeys"), quickSwitchKeysToJson(previousClientKeys)},
         {QStringLiteral("nextClientKeys"), quickSwitchKeysToJson(nextClientKeys)},
         {QStringLiteral("radialSwitchKey"), radialSwitchKey},
+        {QStringLiteral("radialSwitchRecentSeconds"), qBound(1, config.radialSwitchRecentSeconds, 3600)},
         {QStringLiteral("radialAccounts"), radialAccountsToJson(config.radialAccounts)},
     };
 }

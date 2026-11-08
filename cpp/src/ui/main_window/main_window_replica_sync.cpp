@@ -1,3 +1,4 @@
+#include "ui/common/editor_dialogs.h"
 #include "ui/main_window.h"
 
 #include <algorithm>
@@ -67,7 +68,7 @@ void MainWindow::showSyncReplicasDialog(ReplicaId id)
         return;
     }
 
-    QDialog dialog(this);
+    EditorDialogs::Dialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("同步小窗来源"));
     dialog.setMinimumSize(430, 320);
     auto* layout = new QVBoxLayout(&dialog);

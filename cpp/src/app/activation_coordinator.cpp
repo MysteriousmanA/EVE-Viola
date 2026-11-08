@@ -3,6 +3,7 @@
 #include <iterator>
 #include <utility>
 #include <chrono>
+#include <QtConcurrent/QtConcurrentRun>
 #include "config/app_config.h"
 #include "platform/native_gateway.h"
 #include "runtime/runtime_logger.h"
@@ -134,6 +135,25 @@ ActivationCoordinator::ActivationCoordinator(Activate activate, Clock clock)
     , automaticActivationMouseQuietPeriodMs_(kDefaultAutomaticActivationMouseQuietPeriodMs)
 {
 }
+ActivationCoordinator::~ActivationCoordinator()
+{
+    if (automaticActivationCancelled_) { automaticActivationCancelled_->store(true); }
+    automaticActivation_.waitForFinished();
+}
+
+void ActivationCoordinator::collectAutomaticActivation()
+{
+    if (automaticActivation_.isFinished() && automaticActivation_.resultCount() > 0) {
+        if (const auto completed = automaticActivation_.result()) {
+            if (!lastCooldownActivation_ || *completed > *lastCooldownActivation_) {
+                lastCooldownActivation_ = completed;
+            }
+        }
+        automaticActivation_ = {};
+        automaticActivationCancelled_.reset();
+        automaticActivationReplicaId_ = 0;
+    }
+}
 void ActivationCoordinator::noteInputPressed() noexcept
 {
     lastInputActivityMs_.store(clock_());
@@ -215,6 +235,9 @@ void ActivationCoordinator::setAutomaticTriggerActive(
 
 void ActivationCoordinator::cancelAutomaticActivation(std::uint64_t replicaId)
 {
+    if (automaticActivationReplicaId_ == replicaId && automaticActivationCancelled_) {
+        automaticActivationCancelled_->store(true);
+    }
     const auto pending = pendingAutomaticActivations_.find(replicaId);
     if (pending != pendingAutomaticActivations_.end()) {
         logAutomaticActivationOutcome(
@@ -233,7 +256,7 @@ void ActivationCoordinator::logAutomaticActivationOutcome(
     const QString& result,
     const QString& reason,
     QJsonObject windowStateBefore,
-    std::optional<std::uintptr_t> activationCheckForegroundHwnd) const
+    std::optional<std::uintptr_t> activationCheckForegroundHwnd)
 {
     QJsonObject fields{
         {QStringLiteral("origin"), QStringLiteral("color_logic")},
@@ -272,7 +295,21 @@ void ActivationCoordinator::logAutomaticActivationOutcome(
 
 void ActivationCoordinator::flushAutomaticActivations()
 {
-    const QJsonObject windowStateBefore = captureWindowState(QStringLiteral("before"));
+    flushAutomaticActivations(false);
+}
+
+void ActivationCoordinator::flushAutomaticActivationsAsync()
+{
+    flushAutomaticActivations(true);
+}
+
+void ActivationCoordinator::flushAutomaticActivations(bool asynchronous)
+{
+    collectAutomaticActivation();
+    // Multiple replicas can schedule a flush in the same event-loop turn.
+    if (pendingAutomaticActivations_.empty()) { return; }
+    const QJsonObject windowStateBefore = asynchronous
+        ? QJsonObject{} : captureWindowState(QStringLiteral("before"));
     auto pending = std::move(pendingAutomaticActivations_);
     pendingAutomaticActivations_.clear();
 
@@ -302,6 +339,47 @@ void ActivationCoordinator::flushAutomaticActivations()
             QStringLiteral("skipped"),
             QStringLiteral("recent_input_activity"),
             windowStateBefore);
+        return;
+    }
+
+    if (automaticActivation_.isRunning()) {
+        logAutomaticActivationOutcome(replicaId, request, QStringLiteral("skipped"),
+            QStringLiteral("activation_in_progress"), windowStateBefore);
+        return;
+    }
+    if (asynchronous) {
+        const auto now = clock_();
+        if (request.cooldownMs > 0 && lastCooldownActivation_
+            && now - *lastCooldownActivation_ < request.cooldownMs) {
+            logAutomaticActivationOutcome(replicaId, request, QStringLiteral("skipped"),
+                QStringLiteral("activation_cooldown"));
+            return;
+        }
+        // Copy all worker inputs: policy and pending requests remain on the UI thread.
+        automaticActivationReplicaId_ = replicaId;
+        automaticActivationCancelled_ = std::make_shared<std::atomic<bool>>(false);
+        automaticActivation_ = QtConcurrent::run(
+            [activate = activate_, clock = clock_, replicaId, request,
+             cancelled = automaticActivationCancelled_]() -> std::optional<std::int64_t> {
+                const auto before = captureWindowState(QStringLiteral("before"));
+                if (cancelled->load()) {
+                    logAutomaticActivationOutcome(replicaId, request, QStringLiteral("skipped"),
+                        QStringLiteral("activation_cancelled"), before);
+                    return std::nullopt;
+                }
+                try {
+                    const auto observed = activate(request.hwnd);
+                    const auto completed = clock();
+                    logAutomaticActivationOutcome(replicaId, request, QStringLiteral("success"),
+                        {}, before, observed);
+                    return completed;
+                } catch (const NativeException& error) {
+                    logAutomaticActivationOutcome(replicaId, request, QStringLiteral("failed"),
+                        QStringLiteral("%1 (status %2)").arg(error.operation()).arg(error.status()),
+                        before, error.observedForegroundHwnd());
+                    return std::nullopt;
+                }
+            });
         return;
     }
 
@@ -343,6 +421,7 @@ bool ActivationCoordinator::activateWindowWithCooldown(
     int cooldownMs,
     std::uintptr_t* observedForegroundHwnd)
 {
+    collectAutomaticActivation();
     const auto now = clock_();
     if (cooldownMs > 0
         && lastCooldownActivation_.has_value()

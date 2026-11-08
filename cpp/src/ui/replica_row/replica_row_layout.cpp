@@ -14,10 +14,6 @@ using namespace ReplicaRowUi;
 
 void ReplicaRow::buildContentLayout()
 {
-    auto* switchLayout = new QVBoxLayout;
-    switchLayout->setSpacing(2);
-    switchLayout->addWidget(sourceNameVisibilityCheckBox_);
-
     auto* metaLayout = new QVBoxLayout;
     metaLayout->setSpacing(2);
     metaLayout->addWidget(new QLabel(QStringLiteral("截取区域")));
@@ -70,47 +66,19 @@ void ReplicaRow::buildContentLayout()
     sizeLayout->addLayout(scaleGroupLayout, 2);
     sizeLayout->addStretch(7);
 
-    auto* slotRowA = new QHBoxLayout;
-    slotRowA->setSpacing(4);
-    slotRowA->addWidget(colorLogicSlotA_, 1);
-    slotRowA->addWidget(colorLogicSlotColorA_);
-
-    auto* slotLayoutA = new QVBoxLayout;
-    slotLayoutA->setSpacing(2);
-    slotLayoutA->addWidget(new QLabel(QStringLiteral("图色逻辑槽位 1")));
-    slotLayoutA->addLayout(slotRowA);
-
-    auto* slotRowB = new QHBoxLayout;
-    slotRowB->setSpacing(4);
-    slotRowB->addWidget(colorLogicSlotB_, 1);
-    slotRowB->addWidget(colorLogicSlotColorB_);
-
-    auto* slotLayoutB = new QVBoxLayout;
-    slotLayoutB->setSpacing(2);
-    slotLayoutB->addWidget(new QLabel(QStringLiteral("图色逻辑槽位 2")));
-    slotLayoutB->addLayout(slotRowB);
-
-    auto* activeSlotLayout = new QVBoxLayout;
-    activeSlotLayout->setSpacing(2);
-    activeSlotLayout->addWidget(new QLabel(QStringLiteral("当前启用槽位")));
-    activeSlotLayout->addWidget(activeSlotCombo_);
-
-    auto* enabledLayout = new QVBoxLayout;
-    enabledLayout->setSpacing(2);
-    enabledLayout->addWidget(colorLogicEnabledCheck_);
-    enabledLayout->addStretch(1);
-
-    auto* colorLogicLayout = new QHBoxLayout;
-    colorLogicLayout->setSpacing(12);
-    colorLogicLayout->addLayout(activeSlotLayout);
-    colorLogicLayout->addLayout(slotLayoutA, 1);
-    colorLogicLayout->addLayout(slotLayoutB, 1);
-    colorLogicLayout->addLayout(enabledLayout);
-
+    // Legacy controls are retained only for loading older configs and API compatibility.
+    for (QWidget* control : QList<QWidget*>{colorLogicSlotA_, colorLogicSlotB_,
+        colorLogicSlotColorA_, colorLogicSlotColorB_, activeSlotCombo_, colorLogicEnabledCheck_}) {
+        control->setParent(this);
+        control->hide();
+    }
+    colorLogicSummary_ = new QLabel;
+    colorLogicSummary_->setObjectName(QStringLiteral("colorLogicSummary"));
+    colorLogicSummary_->setWordWrap(true);
+    colorLogicSummary_->hide();
     auto* pixelLayout = new QHBoxLayout;
     pixelLayout->setSpacing(12);
     pixelLayout->addWidget(pixelStatisticsHost_, 1);
-    pixelLayout->addWidget(statisticsColorsButton_);
 
     auto* measurementsLayout = new QHBoxLayout;
     measurementsLayout->setSpacing(12);
@@ -120,11 +88,10 @@ void ReplicaRow::buildContentLayout()
     contentHost_ = new QWidget;
     auto* contentLayout = new QVBoxLayout(contentHost_);
     contentLayout->setSpacing(7);
-    contentLayout->addLayout(switchLayout);
     contentLayout->addLayout(regionRowLayout);
     contentLayout->addLayout(positionLayout);
     contentLayout->addLayout(sizeLayout);
-    contentLayout->addLayout(colorLogicLayout);
+    contentLayout->addWidget(colorLogicSummary_);
     contentLayout->addLayout(measurementsLayout);
 }
 
@@ -168,5 +135,20 @@ void ReplicaRow::buildRowLayout()
     layout->addWidget(sourceCell_);
     layout->addWidget(badge_, 0, Qt::AlignTop);
     layout->addWidget(contentHost_, 1);
+    collapsedPixelStatistics_ = new QLabel;
+    collapsedPixelStatistics_->setObjectName(QStringLiteral("collapsedPixelStatistics"));
+    collapsedPixelStatistics_->setWordWrap(true);
+    collapsedPixelStatistics_->setAlignment(Qt::AlignCenter);
+    collapsedPixelStatistics_->installEventFilter(this);
+    collapsedPixelStatistics_->hide();
+    layout->addWidget(collapsedPixelStatistics_, 1);
     layout->addLayout(actionsLayout);
+}
+
+void ReplicaRow::setColorLogicSummary(const QString& text)
+{
+    const QString summary = text == QStringLiteral("未被图色逻辑引用") ? QString{} : text;
+    colorLogicSummary_->setText(summary);
+    colorLogicSummary_->setVisible(!summary.isEmpty());
+    colorLogicSummary_->setToolTip(QStringLiteral("在“图色逻辑”页中配置小窗条件槽和执行小窗。"));
 }

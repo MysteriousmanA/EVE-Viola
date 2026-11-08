@@ -32,12 +32,15 @@ QWidget* MainWindow::buildHomePage()
     connect(homeController_, &HomeController::restoreWithGameChanged, this, &MainWindow::setupGameRestoreMonitoring);
     connect(homeController_, &HomeController::activateSourceChanged, this, [this](bool enabled) {
         for (auto* window : windows_) { window->setAutomaticActivationEnabled(runtimePolicy_.automaticActivation(enabled)); }
+        applyRuntimePolicy();
     });
     connect(homeController_, &HomeController::raiseOnClickChanged, this, [this](bool enabled) {
         for (auto* window : windows_) { window->setRaiseOnClickEnabled(enabled); }
+        applyRuntimePolicy();
     });
     connect(homeController_, &HomeController::cooldownChanged, this, [this](int milliseconds) {
         for (auto* window : windows_) { window->setAutomaticActivationCooldownMs(milliseconds); }
+        applyRuntimePolicy();
     });
     connect(homeController_, &HomeController::mouseQuietPeriodChanged, this, [this](int milliseconds) {
         gateway_.setAutomaticActivationMouseQuietPeriodMs(milliseconds);

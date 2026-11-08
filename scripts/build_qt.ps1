@@ -30,7 +30,7 @@ if (-not $vcvars) {
 }
 
 $preset = if ($Configuration -eq "Debug") { "qt-debug" } else { "qt-release" }
-$command = 'call "{0}" >nul && set VSLANG=1033&& set QT_ROOT={1}&& "{2}" --preset {3} --fresh && "{2}" --build --preset {3}' -f $vcvars, $QtRoot, $cmake, $preset
+$command = 'call "{0}" >nul && set VSLANG=1033&& set QT_ROOT={1}&& "{2}" --preset {3} --fresh -DCMAKE_CXX_FLAGS_DEBUG="/Z7 /Ob0 /Od /RTC1" && "{2}" --build --preset {3}' -f $vcvars, $QtRoot, $cmake, $preset
 
 Push-Location -LiteralPath $projectRoot
 try {

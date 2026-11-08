@@ -12,6 +12,7 @@ class QCheckBox;
 class QHBoxLayout;
 class QLabel;
 class QTableWidget;
+class QSpinBox;
 
 class QuickSwitchPage final : public QWidget
 {
@@ -22,6 +23,7 @@ class QuickSwitchPage final : public QWidget
     ~QuickSwitchPage() override;
     void setKeys(const QStringList &previousKeys, const QStringList &nextKeys);
     void setRadialSwitchKey(const QString &key);
+    void setRadialSwitchRecentSeconds(int seconds);
     void setRadialAccounts(const QStringList &liveWindowTitles,
                            const QList<RadialAccountConfig> &accountConfigs);
     void setRadialAccountPosition(const QString &windowTitle, int targetIndex);
@@ -30,6 +32,7 @@ class QuickSwitchPage final : public QWidget
   signals:
     void keysChanged(const QStringList &previousKeys, const QStringList &nextKeys);
     void radialSwitchKeyChanged(const QString &key);
+    void radialSwitchRecentSecondsChanged(int seconds);
     void radialAccountConfigsChanged(const QList<RadialAccountConfig> &accountConfigs);
     void radialAccountsRefreshRequested();
     void radialAccountPreviewRequested(const QString &windowTitle);
@@ -58,6 +61,7 @@ class QuickSwitchPage final : public QWidget
     QPushButton *nextListenButton_{};
     QPushButton *radialListenButton_{};
     QLabel *radialKeyLabel_{};
+    QSpinBox *radialRecentSeconds_{};
     QLabel *radialAccountsSummary_{};
     QTableWidget *radialAccountsTable_{};
     QPushButton *activeListenButton_{};

@@ -18,6 +18,7 @@
 #include <QLabel>
 #include <QComboBox>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QMediaPlayer>
 #include <QMessageBox>
 #include <QMenu>
@@ -39,16 +40,42 @@
 #include "ui/audio_feedback_manager.h"
 #include "features/replica/statistics_coordinator.h"
 #include "ui/main_window.h"
+#include "ui/account_switch_controller.h"
+#include "ui/radial_switch_overlay.h"
+#include "ui/window_color_logic_runtime.h"
+#include "ui/logic_binding_runtime.h"
+#include "ui/logic_binding_source.h"
+#include "features/color_rule/logic_binding_plan.h"
+#include "ui/pages/logic_list/logic_list_page.h"
+#include "features/quick_switch/quick_switch_service.h"
 #include "ui/desktop_pet_page.h"
 #include "ui/desktop_pet/floating_pet_window.h"
 #include "ui/page_partition_page.h"
 #include "ui/replica_row.h"
 #include "ui/replica_window.h"
-#include "ui/pages/advanced_logic/advanced_logic_page.h"
 #include "ui/pixel_color_editor.h"
 #include "ui/pages/color_rule/color_rule_dialog.h"
+#include "ui/pages/color_rule/color_rule_controller.h"
+#include "ui/pages/color_rule/replica_choice_label.h"
+#include "ui/pages/region_preset/region_preset_controller.h"
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#endif
 
 namespace {
+
+class ControlledLogicAudioChannel final : public AudioChannelBackend {
+public:
+    using AudioChannelBackend::AudioChannelBackend;
+    quint64 attempt{};
+    bool playFile(quint64 id, const QString&) override
+    {
+        attempt = id;
+        emit playbackStarted(id);
+        return true;
+    }
+    void stopPlayback() override {}
+};
 
 EveWindowInfo mockWindows[2]{};
 std::uint32_t mockWindowCount = 0;
@@ -125,6 +152,17 @@ void setMockWindow(int index, std::uintptr_t hwnd, const wchar_t* title)
     std::wmemcpy(mockWindows[index].title, title, std::wcslen(title) + 1);
 }
 
+void bindGlobalRule(MainWindow& manager, ReplicaWindow* window, ColorRule rule)
+{
+    auto* runtime = manager.findChild<WindowColorLogicRuntime*>();
+    const QString id = runtime->idForWindow(window);
+    rule.windowConditions = {rule.triggerCondition1};
+    rule.windowConditions[0].replicaId = id;
+    rule.targetReplicaId = id;
+    runtime->configure({rule});
+    runtime->attach(id, window);
+}
+
 QString freshConfigPath()
 {
     static QTemporaryDir tempDir;
@@ -138,45 +176,1080 @@ class MainWindowTest final : public QObject {
     Q_OBJECT
 
 private slots:
-    void statisticsColorDialogEditsPersistAndRestoreWithTheReplica()
+    void radialCandidatesExcludeCurrentRecentAndInactiveAccounts()
+    {
+        NativeGateway gateway(functions());
+        MainWindow manager(gateway, freshConfigPath());
+        auto* accounts = manager.findChild<AccountSwitchController*>();
+        QVERIFY(accounts);
+        accounts->radialSwitchForegroundHwnd_ = 1;
+        const QList<WindowInfo> clients{{1, "EVE - A"}, {2, "EVE - B"},
+            {3, "EVE - C"}, {4, "EVE - D"}};
+        accounts->setAccountTriggers({{1, {"#1 当前"}}, {2, {"#2 飘逸预警"}}});
+        QCOMPARE(accounts->triggerCandidates(clients), QList<WindowInfo>{clients[1]});
+        accounts->lastVisited_[2] = accounts->clock_.elapsed();
+        QVERIFY(accounts->triggerCandidates(clients).isEmpty());
+        accounts->lastVisited_[2] -= 11000;
+        QCOMPARE(accounts->triggerCandidates(clients), QList<WindowInfo>{clients[1]});
+        auto* recentSeconds = manager.findChild<QSpinBox*>(QStringLiteral("radialSwitchRecentSeconds"));
+        QVERIFY(recentSeconds);
+        QCOMPARE(recentSeconds->value(), 10);
+        recentSeconds->setValue(20);
+        QVERIFY(accounts->triggerCandidates(clients).isEmpty());
+        accounts->lastVisited_[2] -= 10000;
+        QCOMPARE(accounts->triggerCandidates(clients), QList<WindowInfo>{clients[1]});
+        accounts->setAccountTriggers({{3, {"#3 异常"}}, {4, {"#4 速度"}}});
+        QCOMPARE(accounts->triggerCandidates(clients), (QList<WindowInfo>{clients[2], clients[3]}));
+        accounts->setAccountTriggers({});
+        QVERIFY(accounts->triggerCandidates(clients).isEmpty());
+        manager.close();
+    }
+
+    void globalLogicKeepsAccountReasonsForTenSecondsAfterTrigger()
+    {
+        NativeGateway gateway(functions());
+        MainWindow manager(gateway, freshConfigPath());
+        auto* a = manager.createReplica();
+        auto* b = manager.createReplica();
+        a->selectSource({123, QStringLiteral("EVE - A")});
+        b->selectSource({456, QStringLiteral("EVE - B")});
+        auto* runtime = manager.findChild<WindowColorLogicRuntime*>();
+        auto* accounts = manager.findChild<AccountSwitchController*>();
+        ColorRule first; first.number = 10; first.definitionNumber = 3;
+        first.note = QStringLiteral("飘逸预警"); first.targetReplicaId = "reason-A";
+        first.postTriggerAction = PostTriggerAction::ReverseWait;
+        first.windowConditions = {{QStringLiteral("红色"), QStringLiteral(">=2"), -1, "reason-A"}};
+        ColorRule second = first; second.number = 11; second.definitionNumber = 4;
+        second.note = QStringLiteral("速度预警"); second.targetReplicaId = "reason-B";
+        second.windowConditions[0].replicaId = "reason-B";
+        runtime->configure({first, second});
+        runtime->attach("reason-A", a); runtime->attach("reason-B", b);
+        emit a->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(accounts->accountTriggers_.value(123), QStringList{QStringLiteral("#3 飘逸预警")});
+        emit b->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(accounts->accountTriggers_.size(), 2);
+        accounts->overlay()->setTriggerLabels(accounts->accountTriggers_);
+        QCOMPARE(accounts->overlay()->triggerLabels(456), QStringList{QStringLiteral("#4 速度预警")});
+        emit a->colorStatisticsChanged({10, 0, 0});
+        emit b->pixelStatisticsUnavailable();
+        QCOMPARE(accounts->accountTriggers_.size(), 2); // Feedback/condition ending does not erase the event.
+        runtime->recentAccountTriggers_[10].expiresAt = runtime->clock_.elapsed() + 1000;
+        runtime->refreshAccountTriggers();
+        QVERIFY(accounts->accountTriggers_.contains(123));
+        runtime->recentAccountTriggers_[10].expiresAt = runtime->clock_.elapsed();
+        runtime->refreshAccountTriggers();
+        QVERIFY(!accounts->accountTriggers_.contains(123));
+        QVERIFY(accounts->accountTriggers_.contains(456));
+        runtime->recentAccountTriggers_[11].expiresAt = runtime->clock_.elapsed();
+        runtime->refreshAccountTriggers();
+        QVERIFY(accounts->accountTriggers_.isEmpty());
+        manager.close();
+    }
+
+    void editorsKeepReplicaInputAvailable_data()
+    {
+        QTest::addColumn<int>("editor");
+        QTest::newRow("color-rule") << 0;
+        QTest::newRow("statistics-colors") << 1;
+        QTest::newRow("region-preset-name") << 2;
+    }
+
+    void editorsKeepReplicaInputAvailable()
+    {
+        QFETCH(int, editor);
+        NativeGateway gateway(functions());
+        MainWindow manager(gateway, freshConfigPath());
+        auto* replica = manager.createReplica();
+        replica->selectSource({123, QStringLiteral("EVE - Alpha")});
+        replica->setStatisticsInterval(0);
+        manager.show();
+        replica->show();
+        QTest::qWait(30);
+
+        bool found = false;
+        bool windowModal = false;
+        bool ownerBlocked = false;
+        bool replicaEnabled = false;
+        bool editorStayedOpen = false;
+        const int before = mockActivationCount;
+        QTimer::singleShot(0, [&] {
+            auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+            if (!dialog) { return; }
+            found = true;
+            windowModal = dialog->windowModality() == Qt::WindowModal;
+#ifdef Q_OS_WIN
+            ownerBlocked = !IsWindowEnabled(reinterpret_cast<HWND>(manager.winId()));
+            replicaEnabled = IsWindowEnabled(reinterpret_cast<HWND>(replica->winId()));
+#else
+            ownerBlocked = windowModal;
+            replicaEnabled = replica->isEnabled();
+#endif
+            // The QWindow overload follows Qt's window-system input routing.
+            QTest::mouseClick(replica->windowHandle(), Qt::LeftButton,
+                Qt::NoModifier, replica->rect().center());
+            editorStayedOpen = dialog->isVisible();
+            dialog->reject();
+        });
+        if (editor == 0) {
+            QVERIFY(!promptColorRule(&manager, {}, {}, {}).has_value());
+        } else if (editor == 1) {
+            QVERIFY(!promptStatisticsColors(&manager, defaultPixelColorTargets()).has_value());
+        } else {
+            AppConfig config;
+            config.regionPresets = {{QStringLiteral("Original"), QRect(0, 0, 10, 10)}};
+            RegionPresetController controller(config, &manager);
+            controller.renameRegionPresetAt(0);
+            QCOMPARE(config.regionPresets.first().name, QStringLiteral("Original"));
+        }
+        QVERIFY(found);
+        QVERIFY(windowModal);
+        QVERIFY(ownerBlocked);
+        QVERIFY(replicaEnabled);
+        QVERIFY(editorStayedOpen);
+        QCOMPARE(mockActivationCount, before + 1);
+    }
+
+    void logicSourcesResolveByProcessAndAccountAfterRestart()
+    {
+        LogicBindingConfig binding;
+        binding.sourceTitle = QStringLiteral("EVE - Alice");
+        binding.sourceProcessName = QStringLiteral("EXEFILE.EXE");
+        QList<WindowInfo> sources{{123, binding.sourceTitle, "unrelated.exe"},
+            {456, QStringLiteral("EVE - Bob"), "exefile.exe"},
+            {789, binding.sourceTitle, "exefile.exe"}};
+        const auto* resolved = resolveLogicBindingSource(binding, sources);
+        QVERIFY(resolved);
+        QCOMPARE(resolved->hwnd, std::uintptr_t{789});
+        sources[2].hwnd = 999; // Same process and account, new game session.
+        resolved = resolveLogicBindingSource(binding, sources);
+        QVERIFY(resolved);
+        QCOMPARE(resolved->hwnd, std::uintptr_t{999});
+        sources.append({1000, binding.sourceTitle, "exefile.exe"});
+        QVERIFY(!resolveLogicBindingSource(binding, sources)); // Ambiguous account, never guess.
+        sources.removeLast();
+        sources.removeLast();
+        QVERIFY(!resolveLogicBindingSource(binding, sources)); // Matching title in another process is insufficient.
+    }
+
+    void logicListLongPressSelectsAccounts_data()
+    {
+        QTest::addColumn<int>("mode");
+        QTest::newRow("selected-account") << 0;
+        QTest::newRow("select-all") << 1;
+        QTest::newRow("cancel") << 2;
+        QTest::newRow("no-accounts") << 3;
+    }
+
+    void logicListLongPressSelectsAccounts()
+    {
+        QFETCH(int, mode);
+        LogicListPage page;
+        ColorRule rule; rule.number = 7; rule.note = QStringLiteral("告警");
+        const QList<WindowInfo> sources{{123, "EVE - A"}, {456, "EVE - B"}};
+        page.setConfiguration({rule}, {}, mode == 3 ? QList<WindowInfo>{} : sources, {});
+        page.show();
+        auto* add = page.findChild<QPushButton*>(QStringLiteral("addLogicBinding"));
+        QSignalSpy single(&page, &LogicListPage::addRequested);
+        QSignalSpy batch(&page, &LogicListPage::addForSourcesRequested);
+        QTest::mouseClick(add, Qt::LeftButton);
+        QCOMPARE(single.size(), 1);
+        single.clear();
+        bool dialogSeen = false;
+        bool initiallyDisabled = false;
+        QTimer::singleShot(800, &page, [&] {
+            auto* dialog = page.findChild<QDialog*>(QStringLiteral("logicSourceSelectionDialog"));
+            if (!dialog) { return; }
+            dialogSeen = true;
+            auto* choices = dialog->findChild<QListWidget*>(QStringLiteral("logicSourceChoices"));
+            auto* buttons = dialog->findChild<QDialogButtonBox*>();
+            initiallyDisabled = !buttons->button(QDialogButtonBox::Ok)->isEnabled();
+            QTest::mouseRelease(add, Qt::LeftButton);
+            if (mode == 0) {
+                choices->item(1)->setCheckState(Qt::Checked);
+                buttons->button(QDialogButtonBox::Ok)->click();
+            } else if (mode == 1) {
+                dialog->findChild<QCheckBox*>(QStringLiteral("selectAllLogicSources"))->click();
+                buttons->button(QDialogButtonBox::Ok)->click();
+            } else {
+                buttons->button(QDialogButtonBox::Cancel)->click();
+            }
+        });
+        QTest::mousePress(add, Qt::LeftButton);
+        QTest::qWait(950);
+        QVERIFY(dialogSeen);
+        QVERIFY(initiallyDisabled);
+        QCOMPARE(single.size(), 0);
+        QCOMPARE(batch.size(), mode < 2 ? 1 : 0);
+        if (mode < 2) {
+            QCOMPARE(batch.first()[0].toInt(), 7);
+            QCOMPARE(batch.first()[1].value<QList<WindowInfo>>(), mode == 0 ? QList<WindowInfo>{sources[1]} : sources);
+        }
+        QTest::mouseClick(add, Qt::LeftButton);
+        QCOMPARE(single.size(), 1);
+    }
+
+    void logicListBatchAdditionBindsAndPersistsEachAccount()
+    {
+        QTemporaryDir directory;
+        AppConfig config;
+        config.regionPresets = {{QStringLiteral("护盾"), QRect(0, 0, 2, 1)}};
+        const auto preset = logicRegionPresetId(QStringLiteral("护盾"));
+        ColorRule rule; rule.number = 1; rule.targetReplicaId = preset;
+        rule.windowConditions = {{QStringLiteral("红色"), QStringLiteral(">=2"), -1, preset}};
+        config.colorRules = {rule};
+        JsonConfigStore store(directory.path()); QString error;
+        QVERIFY2(store.save(config, &error), qPrintable(error));
+        setMockWindow(0, 123, L"EVE - A"); setMockWindow(1, 456, L"EVE - B"); mockWindowCount = 2;
+        NativeGateway gateway(functions());
+        {
+            MainWindow manager(gateway, directory.path());
+            auto* page = manager.findChild<LogicListPage*>(); QVERIFY(page);
+            emit page->addForSourcesRequested(1, {{123, "EVE - A"}, {456, "EVE - B"}});
+            QCoreApplication::processEvents();
+            auto* table = page->findChild<QTableWidget*>(QStringLiteral("logicBindingTable"));
+            QCOMPARE(table->rowCount(), 2);
+            for (int row = 0; row < 2; ++row) {
+                QVERIFY(table->item(row, 3)->text().contains(QStringLiteral("已绑定")));
+            }
+            manager.close();
+        }
+        mockWindowCount = 0;
+        AppConfig saved; QVERIFY2(store.load(saved, &error), qPrintable(error));
+        QCOMPARE(saved.logicBindings.size(), 2);
+        QCOMPARE(saved.replicas.size(), 2);
+        QVERIFY(saved.logicBindings[0].id != saved.logicBindings[1].id);
+        for (int i = 0; i < 2; ++i) {
+            QCOMPARE(saved.logicBindings[i].ruleNumber, 1);
+            QCOMPARE(saved.logicBindings[i].sourceProcessName, QStringLiteral("exefile.exe"));
+            QCOMPARE(saved.logicBindings[i].sourceTitle, i == 0 ? QStringLiteral("EVE - A") : QStringLiteral("EVE - B"));
+            QCOMPARE(saved.logicBindings[i].windowIds.size(), 1);
+        }
+    }
+
+    void gameProcessChangesPreserveExistingLogicState()
+    {
+        NativeGateway gateway(functions());
+        MainWindow manager(gateway, freshConfigPath());
+        auto* first = manager.createReplica();
+        auto* existing = manager.createReplica();
+        const WindowInfo sourceA{123, "EVE - A"};
+        const WindowInfo sourceB{456, "EVE - B"};
+        first->selectSource(sourceA); existing->selectSource(sourceB);
+        first->setStatisticsInterval(1500); existing->setStatisticsInterval(1500);
+        ReplicaConfig templateWindow; templateWindow.id = "template";
+        templateWindow.capturedRegion = QRect(0, 0, 2, 1);
+        ColorRule rule; rule.number = 7;
+        rule.windowConditions = {{QStringLiteral("红色"), ">=2", -1, "template"}};
+        rule.postTriggerAction = PostTriggerAction::ReverseWait;
+        LogicBindingConfig a; a.id = "a"; a.ruleNumber = 7; a.sourceTitle = sourceA.title;
+        a.windowIds.insert("template", "first");
+        auto b = a; b.id = "b"; b.sourceTitle = sourceB.title;
+        b.windowIds.insert("template", "existing");
+        auto* runtime = manager.findChild<LogicBindingRuntime*>();
+        QSignalSpy triggered(existing, &ReplicaWindow::colorLogicTriggered);
+        const QHash<QString, ReplicaWindow*> replicas{{"first", first}, {"existing", existing}};
+        const auto configure = [&](const QList<WindowInfo>& sources, bool force = false) {
+            runtime->configure({rule}, {a, b}, {templateWindow}, sources, replicas, force);
+        };
+        configure({sourceB});
+        emit existing->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(triggered.size(), 1);
+        configure({sourceA, sourceB}); // Earlier binding becomes available and shifts list positions.
+        emit existing->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(triggered.size(), 1);
+        configure({sourceB}); // Earlier game process closes.
+        emit existing->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(triggered.size(), 1);
+        configure({sourceB, sourceA}, true);
+        emit existing->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(triggered.size(), 1);
+        emit existing->colorStatisticsChanged({10, 0, 0});
+        emit existing->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(triggered.size(), 2); // A real false-to-true edge still triggers.
+        manager.close();
+    }
+
+    void logicInstancesShareOneSourceAndRemainIndependent()
+    {
+        QTemporaryDir directory;
+        JsonConfigStore store(directory.path());
+        AppConfig config;
+        ReplicaConfig a; a.id = "A"; a.capturedRegion = QRect(0, 0, 2, 1); a.visible = false;
+        ReplicaConfig b; b.id = "B"; b.capturedRegion = QRect(2, 0, 2, 1); b.visible = false;
+        config.replicas = {a, b};
+        config.regionPresets = {{QStringLiteral("护盾"), a.capturedRegion}, {QStringLiteral("本地"), b.capturedRegion}};
+        ColorRule rule; rule.number = 1;
+        rule.windowConditions = {{QStringLiteral("红色"), QStringLiteral(">=2"), -1, "A"},
+            {QStringLiteral("白色"), QStringLiteral("<2"), -1, "B"}};
+        rule.targetReplicaId = "A"; rule.postTriggerAction = PostTriggerAction::ReverseWait;
+        config.colorRules = {rule};
+        LogicBindingConfig x; x.id = "X"; x.ruleNumber = 1; x.sourceTitle = QStringLiteral("EVE - A");
+        LogicBindingConfig y = x; y.id = "Y"; y.sourceTitle = QStringLiteral("EVE - B");
+        config.logicBindings = {x, y};
+        setMockWindow(0, 123, L"EVE - A"); setMockWindow(1, 456, L"EVE - B"); mockWindowCount = 2;
+        QString error;
+        QVERIFY2(store.save(config, &error), qPrintable(error));
+        NativeGateway gateway(functions());
+        {
+            MainWindow manager(gateway, directory.path());
+            auto* runtime = manager.findChild<LogicBindingRuntime*>();
+            const auto first = runtime->windowsForBinding("X");
+            const auto second = runtime->windowsForBinding("Y");
+            QCOMPARE(first.size(), 2); QCOMPARE(second.size(), 2);
+            ReplicaWindow* xa = nullptr; ReplicaWindow* xb = nullptr;
+            ReplicaWindow* ya = nullptr; ReplicaWindow* yb = nullptr;
+            for (auto* window : first) {
+                QCOMPARE(window->source()->hwnd, std::uintptr_t{123});
+                if (window->capturedRegion() == std::optional<QRect>(a.capturedRegion)) { xa = window; } else { xb = window; }
+            }
+            for (auto* window : second) {
+                QCOMPARE(window->source()->hwnd, std::uintptr_t{456});
+                if (window->capturedRegion() == std::optional<QRect>(a.capturedRegion)) { ya = window; } else { yb = window; }
+            }
+            QVERIFY(xa && xb && ya && yb);
+            QSignalSpy firstTriggered(xa, &ReplicaWindow::colorLogicTriggered);
+            QSignalSpy secondTriggered(ya, &ReplicaWindow::colorLogicTriggered);
+            emit xa->colorStatisticsChanged({10, 2, 0});
+            emit yb->colorStatisticsChanged({10, 0, 1});
+            QCOMPARE(firstTriggered.size(), 0); // Samples from different instances cannot combine.
+            QCOMPARE(secondTriggered.size(), 0);
+            emit xb->colorStatisticsChanged({10, 0, 1});
+            QCOMPARE(firstTriggered.size(), 1);
+            QCOMPARE(firstTriggered.first()[0].toInt(), 1);
+            emit ya->colorStatisticsChanged({10, 2, 0});
+            QCOMPARE(secondTriggered.size(), 1);
+            QCOMPARE(secondTriggered.first()[0].toInt(), 1);
+            emit xa->colorStatisticsChanged({10, 2, 0});
+            QCOMPARE(firstTriggered.size(), 1);
+            QCOMPARE(secondTriggered.size(), 1);
+            manager.close();
+        }
+        AppConfig saved;
+        QVERIFY2(store.load(saved, &error), qPrintable(error));
+        migrateLogicRegionReferences(config);
+        QCOMPARE(saved.colorRules.first(), config.colorRules.first());
+        QCOMPARE(saved.logicBindings.size(), config.logicBindings.size());
+        for (int i = 0; i < saved.logicBindings.size(); ++i) {
+            auto binding = saved.logicBindings[i];
+            QCOMPARE(binding.windowIds.size(), 2);
+            binding.windowIds.clear();
+            QCOMPARE(binding, config.logicBindings[i]);
+        }
+        QCOMPARE(saved.replicas.size(), 4); // Reuse the two unbound windows for the first source.
+        mockWindowCount = 0;
+    }
+
+    void logicListBindsAllTemplateWindowsBySelectingOneSource()
+    {
+        QTemporaryDir directory;
+        AppConfig config;
+        ReplicaConfig replica; replica.id = "template"; replica.capturedRegion = QRect(0, 0, 2, 1); replica.visible = false;
+        config.replicas = {replica}; config.regionPresets = {{QStringLiteral("护盾"), replica.capturedRegion}};
+        ColorRule rule; rule.number = 1; rule.note = QStringLiteral("告警"); rule.targetReplicaId = replica.id;
+        rule.windowConditions = {{QStringLiteral("红色"), QStringLiteral(">=2"), -1, replica.id}};
+        config.colorRules = {rule};
+        JsonConfigStore store(directory.path()); QString error;
+        QVERIFY2(store.save(config, &error), qPrintable(error));
+        setMockWindow(0, 123, L"EVE - A"); mockWindowCount = 1;
+        NativeGateway gateway(functions()); MainWindow manager(gateway, directory.path());
+        auto* page = manager.findChild<LogicListPage*>(); QVERIFY(page);
+        page->findChild<QPushButton*>(QStringLiteral("addLogicBinding"))->click();
+        QCoreApplication::processEvents();
+        auto* table = page->findChild<QTableWidget*>(QStringLiteral("logicBindingTable"));
+        QCOMPARE(table->rowCount(), 1);
+        auto* source = qobject_cast<QComboBox*>(table->cellWidget(0, 2)); QVERIFY(source);
+        source->setCurrentIndex(1); emit source->activated(1);
+        QCoreApplication::processEvents();
+        QVERIFY(table->item(0, 3)->text().contains(QStringLiteral("已绑定")));
+        manager.close();
+        AppConfig saved; QVERIFY2(store.load(saved, &error), qPrintable(error));
+        QCOMPARE(saved.logicBindings.size(), 1);
+        QCOMPARE(saved.logicBindings.first().sourceTitle, QStringLiteral("EVE - A"));
+        QCOMPARE(saved.colorRules.first().windowConditions.first().replicaId, logicRegionPresetId(QStringLiteral("护盾")));
+        mockWindowCount = 0;
+    }
+
+    void logicListFiltersBySourceAndLogicAndKeepsOriginalSourceData()
+    {
+        LogicListPage page;
+        ColorRule warning; warning.number = 1; warning.note = QStringLiteral("飘逸预警");
+        ColorRule reverse; reverse.number = 2; reverse.note = QStringLiteral("反预警");
+        LogicBindingConfig a; a.id = "a"; a.ruleNumber = 1; a.sourceTitle = "EVE - Alice";
+        LogicBindingConfig b = a; b.id = "b"; b.ruleNumber = 2;
+        LogicBindingConfig c = a; c.id = "c"; c.sourceTitle = "EVE - Bob";
+        LogicBindingConfig unbound = a; unbound.id = "unbound"; unbound.sourceTitle.clear();
+        const QList<LogicBindingConfig> bindings{a, b, c, unbound};
+        const QList<WindowInfo> sources{{123, a.sourceTitle}, {456, c.sourceTitle}};
+        page.setConfiguration({warning, reverse}, bindings, sources, {});
+        auto* table = page.findChild<QTableWidget*>(QStringLiteral("logicBindingTable"));
+        auto* sourceFilter = page.findChild<QComboBox*>(QStringLiteral("logicSourceFilter"));
+        auto* logicFilter = page.findChild<QComboBox*>(QStringLiteral("logicNameFilter"));
+        QVERIFY(sourceFilter); QVERIFY(logicFilter);
+        auto* source = qobject_cast<QComboBox*>(table->cellWidget(0, 2)); QVERIFY(source);
+        QCOMPARE(source->currentText(), QStringLiteral("Alice"));
+        QVERIFY(!source->currentText().contains(QStringLiteral("EVE - ")));
+        QCOMPARE(source->currentData().value<WindowInfo>().title, a.sourceTitle);
+        QSignalSpy changed(&page, &LogicListPage::sourceChanged);
+        source->setCurrentIndex(2); emit source->activated(2);
+        QCOMPARE(changed.size(), 1);
+        QCOMPARE(changed.first()[0].toString(), a.id);
+        QCOMPARE(changed.first()[1].value<WindowInfo>().title, c.sourceTitle);
+        QCOMPARE(sourceFilter->itemText(sourceFilter->findData(a.sourceTitle)), QStringLiteral("Alice"));
+        sourceFilter->setCurrentIndex(sourceFilter->findData(a.sourceTitle));
+        QVERIFY(!table->isRowHidden(0)); QVERIFY(!table->isRowHidden(1)); QVERIFY(table->isRowHidden(2));
+        logicFilter->setCurrentIndex(logicFilter->findData(2));
+        QVERIFY(table->isRowHidden(0)); QVERIFY(!table->isRowHidden(1));
+        page.setConfiguration({warning, reverse}, bindings, {}, {{"a", QStringLiteral("失联")}});
+        QCOMPARE(sourceFilter->currentData().toString(), a.sourceTitle);
+        QCOMPARE(logicFilter->currentData().toInt(), 2);
+        QVERIFY(table->isRowHidden(0)); QVERIFY(!table->isRowHidden(1));
+        source = qobject_cast<QComboBox*>(table->cellWidget(0, 2));
+        QCOMPARE(source->currentText(), QStringLiteral("暂未找到 · Alice"));
+        page.findChild<QPushButton*>(QStringLiteral("resetLogicFilters"))->click();
+        for (int row = 0; row < table->rowCount(); ++row) { QVERIFY(!table->isRowHidden(row)); }
+        sourceFilter->setCurrentIndex(sourceFilter->findData(QStringLiteral("")));
+        QVERIFY(table->isRowHidden(0)); QVERIFY(!table->isRowHidden(3));
+        sourceFilter->setCurrentIndex(0);
+        logicFilter->setCurrentIndex(logicFilter->findData(1));
+        QVERIFY(!table->isRowHidden(0)); QVERIFY(table->isRowHidden(1)); QVERIFY(!table->isRowHidden(2));
+        page.setConfiguration({warning}, {a}, sources, {});
+        QCOMPARE(logicFilter->currentData().toInt(), 1);
+        QVERIFY(!table->isRowHidden(0));
+    }
+
+    void logicListReusesExistingWindowsAndPersistsFineTuning()
+    {
+        QTemporaryDir directory;
+        AppConfig config;
+        const auto presetId = logicRegionPresetId(QStringLiteral("护盾"));
+        ReplicaConfig replica; replica.id = "existing";
+        replica.sourceTitle = QStringLiteral("EVE - A"); replica.capturedRegion = QRect(0, 0, 2, 1);
+        replica.position = QPoint(210, 220); replica.size = QSize(180, 90);
+        config.replicas = {replica};
+        config.regionPresets = {{QStringLiteral("护盾"), replica.capturedRegion}};
+        ColorRule rule; rule.number = 1;
+        rule.windowConditions = {{QStringLiteral("红色"), QStringLiteral(">=2"), -1, presetId}};
+        config.colorRules = {rule};
+        LogicBindingConfig binding; binding.id = "first"; binding.ruleNumber = 1;
+        binding.sourceTitle = replica.sourceTitle;
+        config.logicBindings = {binding};
+        JsonConfigStore store(directory.path()); QString error;
+        QVERIFY2(store.save(config, &error), qPrintable(error));
+        setMockWindow(0, 123, L"EVE - A"); setMockWindow(1, 456, L"EVE - B"); mockWindowCount = 2;
+        NativeGateway gateway(functions());
+        QString secondId;
+        {
+            MainWindow manager(gateway, directory.path());
+            auto* runtime = manager.findChild<LogicBindingRuntime*>();
+            QCOMPARE(manager.replicaWindows().size(), 1);
+            const auto first = runtime->windowsForBinding("first"); QCOMPARE(first.size(), 1);
+            QCOMPARE(first.first()->size(), replica.size);
+            first.first()->setCapturedRegion(QRect(0, 0, 1, 1));
+            auto* page = manager.findChild<LogicListPage*>();
+            page->findChild<QPushButton*>(QStringLiteral("addLogicBinding"))->click();
+            QCoreApplication::processEvents();
+            QCOMPARE(manager.replicaWindows().size(), 1);
+            auto* table = page->findChild<QTableWidget*>(QStringLiteral("logicBindingTable"));
+            auto* source = qobject_cast<QComboBox*>(table->cellWidget(1, 2)); QVERIFY(source);
+            source->setCurrentIndex(1); emit source->activated(1);
+            QCoreApplication::processEvents();
+            QCOMPARE(manager.replicaWindows().size(), 1);
+            manager.close();
+        }
+        AppConfig saved; QVERIFY2(store.load(saved, &error), qPrintable(error));
+        QCOMPARE(saved.replicas.size(), 1);
+        QCOMPARE(saved.logicBindings.size(), 2);
+        for (const auto& item : saved.logicBindings) { QCOMPARE(item.windowIds.value(presetId), replica.id); }
+        secondId = saved.logicBindings.last().id;
+        {
+            MainWindow manager(gateway, directory.path());
+            auto* runtime = manager.findChild<LogicBindingRuntime*>();
+            QCOMPARE(manager.replicaWindows().size(), 1);
+            QCOMPARE(runtime->windowsForBinding("first"), runtime->windowsForBinding(secondId));
+            QCOMPARE(runtime->windowsForBinding("first").first()->capturedRegion(),
+                std::optional<QRect>(QRect(0, 0, 1, 1)));
+            auto* page = manager.findChild<LogicListPage*>();
+            auto* table = page->findChild<QTableWidget*>(QStringLiteral("logicBindingTable"));
+            auto* source = qobject_cast<QComboBox*>(table->cellWidget(1, 2)); QVERIFY(source);
+            source->setCurrentIndex(2); emit source->activated(2);
+            QCoreApplication::processEvents();
+            QCOMPARE(manager.replicaWindows().size(), 2);
+            QCOMPARE(runtime->windowsForBinding("first").first()->source()->hwnd, std::uintptr_t{123});
+            QCOMPARE(runtime->windowsForBinding(secondId).first()->source()->hwnd, std::uintptr_t{456});
+            manager.close();
+        }
+        mockWindowCount = 0;
+    }
+
+    void cachedLogicWindowsSurviveSourceRestartWithoutDuplicates_data()
+    {
+        QTest::addColumn<bool>("restoreWithGame");
+        QTest::newRow("restore-on-startup") << false;
+        QTest::newRow("restore-with-game") << true;
+    }
+
+    void cachedLogicWindowsSurviveSourceRestartWithoutDuplicates()
+    {
+        QFETCH(bool, restoreWithGame);
+        QTemporaryDir directory;
+        AppConfig config;
+        config.restoreWindowsWithGame = restoreWithGame;
+        const auto presetId = logicRegionPresetId(QStringLiteral("护盾"));
+        config.regionPresets = {{QStringLiteral("护盾"), QRect(0, 0, 2, 1)}};
+        ColorRule rule; rule.number = 1;
+        rule.windowConditions = {{QStringLiteral("红色"), QStringLiteral(">=2"), -1, presetId}};
+        config.colorRules = {rule};
+        ReplicaConfig replica; replica.id = "saved-window";
+        replica.sourceTitle = QStringLiteral("EVE - A");
+        replica.capturedRegion = QRect(0, 0, 1, 1); // A saved fine-tuned region.
+        replica.position = QPoint(210, 220); replica.size = QSize(180, 180);
+        config.replicas = {replica};
+        LogicBindingConfig binding; binding.id = "saved-binding"; binding.ruleNumber = 1;
+        binding.sourceTitle = replica.sourceTitle;
+        binding.windowIds.insert(presetId, replica.id);
+        config.logicBindings = {binding};
+        JsonConfigStore store(directory.path()); QString error;
+        QVERIFY2(store.save(config, &error), qPrintable(error));
+        NativeGateway gateway(functions());
+        for (const auto hwnd : {456, 789, 123}) {
+            setMockWindow(0, hwnd, L"EVE - A"); mockWindowCount = 1;
+            MainWindow manager(gateway, directory.path());
+            auto* page = manager.findChild<LogicListPage*>(); QVERIFY(page);
+            for (int refresh = 0; refresh < 3; ++refresh) {
+                emit page->refreshRequested();
+                QCoreApplication::processEvents();
+                QCOMPARE(manager.replicaWindows().size(), 1);
+            }
+            auto* window = manager.replicaWindows().first();
+            QVERIFY(window->source());
+            QCOMPARE(window->source()->hwnd, std::uintptr_t(hwnd));
+            QCOMPARE(window->capturedRegion(), std::optional<QRect>(replica.capturedRegion));
+            QCOMPARE(window->size(), replica.size);
+            QCOMPARE(window->pos(), replica.position);
+            manager.close();
+            AppConfig saved; QVERIFY2(store.load(saved, &error), qPrintable(error));
+            QCOMPARE(saved.replicas.size(), 1);
+            QCOMPARE(saved.replicas.first().id, replica.id);
+            QCOMPARE(saved.logicBindings.first().windowIds.value(presetId), replica.id);
+            QCOMPARE(saved.logicBindings.first().sourceProcessName, QStringLiteral("exefile.exe"));
+        }
+        mockWindowCount = 0;
+    }
+
+    void globalLogicIgnoresDisabledWindowStatistics()
+    {
+        NativeGateway gateway(functions());
+        MainWindow manager(gateway, freshConfigPath());
+        auto* a = manager.createReplica();
+        auto* b = manager.createReplica();
+        a->selectSource({123, QStringLiteral("EVE - A")});
+        b->selectSource({456, QStringLiteral("EVE - B")});
+        auto* runtime = manager.findChild<WindowColorLogicRuntime*>();
+        ColorRule rule;
+        rule.number = 10; rule.targetReplicaId = "test-A";
+        rule.windowConditions = {{QStringLiteral("红色"), QStringLiteral(">=2"), -1, "test-A"},
+            {QStringLiteral("白色"), QStringLiteral("<2"), -1, "test-B"}};
+        rule.postTriggerAction = PostTriggerAction::ReverseWait;
+        runtime->configure({rule});
+        runtime->attach("test-A", a); runtime->attach("test-B", b);
+        QSignalSpy triggered(a, &ReplicaWindow::colorLogicTriggered);
+        emit a->colorStatisticsChanged({10, 2, 0});
+        b->setStatisticsInterval(0);
+        emit b->colorStatisticsChanged({10, 0, 1});
+        QCOMPARE(triggered.size(), 0);
+        b->setStatisticsInterval(1500);
+        emit b->colorStatisticsChanged({10, 0, 1});
+        QCOMPARE(triggered.size(), 1);
+        manager.close();
+    }
+
+    void logicBindingFlashesSelectedBordersForOnlyTheTriggeredAccount()
+    {
+        QTemporaryDir directory;
+        AppConfig config;
+        const QRect sampling(0, 0, 2, 1), firstBorder(2, 0, 2, 1), secondBorder(4, 0, 2, 1);
+        config.regionPresets = {{QStringLiteral("采样"), sampling},
+            {QStringLiteral("边框一"), firstBorder}, {QStringLiteral("边框二"), secondBorder}};
+        ColorRule rule; rule.number = 1;
+        rule.postTriggerAction = PostTriggerAction::Loop;
+        rule.windowConditions = {{QStringLiteral("红色"), QStringLiteral(">=2"), -1,
+            logicRegionPresetId(QStringLiteral("采样"))}};
+        rule.windowSwitches = {{logicRegionPresetId(QStringLiteral("边框一")), QColor(46, 204, 64), 0},
+            {logicRegionPresetId(QStringLiteral("边框二")), QColor(80, 160, 255), 0}};
+        config.colorRules = {rule};
+        LogicBindingConfig a; a.id = "A"; a.ruleNumber = 1; a.sourceTitle = "EVE - A";
+        LogicBindingConfig b = a; b.id = "B"; b.sourceTitle = "EVE - B";
+        config.logicBindings = {a, b};
+        JsonConfigStore store(directory.path()); QString error;
+        QVERIFY2(store.save(config, &error), qPrintable(error));
+        setMockWindow(0, 123, L"EVE - A"); setMockWindow(1, 456, L"EVE - B"); mockWindowCount = 2;
+        NativeGateway gateway(functions());
+        MainWindow manager(gateway, directory.path());
+        mockWindowCount = 0;
+        auto* bindings = manager.findChild<LogicBindingRuntime*>();
+        const auto windowsA = bindings->windowsForBinding("A");
+        const auto windowsB = bindings->windowsForBinding("B");
+        QCOMPARE(windowsA.size(), 3); QCOMPARE(windowsB.size(), 3);
+        const auto findSampling = [&](const QList<ReplicaWindow*>& windows) -> ReplicaWindow* {
+            for (auto* window : windows) {
+                if (window->capturedRegion() == std::optional<QRect>(sampling)) { return window; }
+            }
+            return nullptr;
+        };
+        auto* sampleA = findSampling(windowsA); auto* sampleB = findSampling(windowsB);
+        QVERIFY(sampleA); QVERIFY(sampleB);
+        for (auto* window : windowsA + windowsB) { QVERIFY(!window->isFlashActive()); }
+        emit sampleA->colorStatisticsChanged({10, 2, 0});
+        for (auto* window : windowsA) {
+            QCOMPARE(window->isFlashActive(), window != sampleA);
+            if (window != sampleA) {
+                QCOMPARE(window->borderColor(), window->capturedRegion() == std::optional<QRect>(firstBorder)
+                    ? QColor(46, 204, 64) : QColor(80, 160, 255));
+            }
+        }
+        for (auto* window : windowsB) { QVERIFY(!window->isFlashActive()); }
+        emit sampleB->colorStatisticsChanged({10, 2, 0});
+        for (auto* window : windowsB) { QCOMPARE(window->isFlashActive(), window != sampleB); }
+        emit sampleA->colorStatisticsChanged({10, 0, 0});
+        for (auto* window : windowsA) { QVERIFY(!window->isFlashActive()); }
+        for (auto* window : windowsB) { QCOMPARE(window->isFlashActive(), window != sampleB); }
+        emit sampleB->pixelStatisticsUnavailable();
+        for (auto* window : windowsB) { QVERIFY(!window->isFlashActive()); }
+        manager.close();
+    }
+
+    void separatelyListedStatesShareExecutionWhenMiddleClicked()
+    {
+        QTemporaryDir directory;
+        AppConfig config;
+        config.regionPresets = {{QStringLiteral("本地"), QRect(0, 0, 2, 1)}};
+        const auto preset = logicRegionPresetId(QStringLiteral("本地"));
+        ColorRule warning; warning.number = 31;
+        warning.windowConditions = {{QStringLiteral("红色"), QStringLiteral(">=2"), -1, preset}};
+        warning.windowSwitches = {{preset, QColor(46, 204, 64), 32}};
+        ColorRule reverse = warning; reverse.number = 32;
+        reverse.windowConditions[0].expression = QStringLiteral("<2");
+        reverse.windowSwitches = {{preset, QColor(80, 160, 255), 31}};
+        reverse.postTriggerAction = PostTriggerAction::Jump; reverse.jumpToRule = 31;
+        config.colorRules = {warning, reverse};
+        for (const auto& source : QList<WindowInfo>{{123, "EVE - A"}, {456, "EVE - B"}}) {
+            for (int number : {31, 32}) {
+                LogicBindingConfig binding; binding.ruleNumber = number;
+                binding.sourceTitle = source.title;
+                config.logicBindings.append(binding);
+            }
+        }
+        JsonConfigStore store(directory.path()); QString error;
+        QVERIFY2(store.save(config, &error), qPrintable(error));
+        setMockWindow(0, 123, L"EVE - A"); setMockWindow(1, 456, L"EVE - B"); mockWindowCount = 2;
+        NativeGateway gateway(functions());
+        MainWindow manager(gateway, directory.path());
+        mockWindowCount = 0;
+        auto* bindings = manager.findChild<LogicBindingRuntime*>();
+        const auto a = bindings->windowsForBinding(config.logicBindings[0].id);
+        const auto b = bindings->windowsForBinding(config.logicBindings[2].id);
+        QCOMPARE(a.size(), 1); QCOMPARE(b.size(), 1);
+        QCOMPARE(bindings->windowsForBinding(config.logicBindings[1].id), a);
+        QCOMPARE(bindings->windowsForBinding(config.logicBindings[3].id), b);
+        auto* first = a.first(); auto* second = b.first();
+        QSignalSpy firstTriggered(first, &ReplicaWindow::colorLogicTriggered);
+        QSignalSpy secondTriggered(second, &ReplicaWindow::colorLogicTriggered);
+        emit first->colorStatisticsChanged({10, 0, 0});
+        QCOMPARE(firstTriggered.size(), 0); // Reverse is a state, not another active detector.
+        emit first->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(firstTriggered.size(), 1);
+        QCOMPARE(firstTriggered.last()[0].toInt(), 31);
+        QTest::mouseClick(first, Qt::MiddleButton);
+        QCOMPARE(first->borderColor(), QColor(80, 160, 255));
+        QCOMPARE(second->borderColor(), QColor(46, 204, 64));
+        emit first->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(firstTriggered.size(), 1); // Old conditions cannot execute after switching.
+        emit second->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(secondTriggered.size(), 1);
+        QCOMPARE(secondTriggered.last()[0].toInt(), 31);
+        emit first->colorStatisticsChanged({10, 0, 0});
+        QCOMPARE(firstTriggered.size(), 2);
+        QCOMPARE(firstTriggered.last()[0].toInt(), 32);
+        QCOMPARE(first->borderColor(), QColor(46, 204, 64)); // Triggered jump shares the same state.
+        emit first->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(firstTriggered.size(), 3);
+        QCOMPARE(firstTriggered.last()[0].toInt(), 31);
+        QTest::mouseClick(first, Qt::MiddleButton);
+        QTest::mouseClick(first, Qt::MiddleButton);
+        emit first->colorStatisticsChanged({10, 0, 0});
+        QCOMPARE(firstTriggered.size(), 3);
+        emit first->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(firstTriggered.size(), 4);
+        QCOMPARE(firstTriggered.last()[0].toInt(), 31);
+        manager.close();
+    }
+
+    void reverseWaitStopsFlashingAfterFeedback_data()
+    {
+        QTest::addColumn<int>("feedback");
+        QTest::newRow("none") << static_cast<int>(TriggerFeedback::None);
+        QTest::newRow("audio") << static_cast<int>(TriggerFeedback::Audio);
+        QTest::newRow("popup") << static_cast<int>(TriggerFeedback::Popup);
+    }
+
+    void reverseWaitStopsFlashingAfterFeedback()
+    {
+        QFETCH(int, feedback);
+        NativeGateway gateway(functions());
+        MainWindow manager(gateway, freshConfigPath());
+        auto* sample = manager.createReplica();
+        auto* border = manager.createReplica();
+        sample->selectSource({123, QStringLiteral("EVE - A")});
+        border->selectSource({123, QStringLiteral("EVE - A")});
+        sample->hide();
+        QList<ControlledLogicAudioChannel*> channels;
+        AudioFeedbackManager audio([&](QObject* parent) {
+            auto* channel = new ControlledLogicAudioChannel(parent);
+            channels.append(channel);
+            return channel;
+        });
+        WindowColorLogicRuntime runtime(audio);
+        ColorRule rule; rule.number = 71; rule.targetReplicaId = "sample";
+        rule.postTriggerAction = PostTriggerAction::ReverseWait;
+        rule.triggerFeedback = static_cast<TriggerFeedback>(feedback);
+        rule.triggerFeedbackAudio = QStringLiteral("controlled-feedback.wav");
+        rule.windowConditions = {{QStringLiteral("红色"), QStringLiteral(">=2"), -1, "sample"}};
+        const QColor color(46, 204, 64);
+        rule.windowSwitches = {{"border", color, 0}};
+        runtime.configure({rule});
+        runtime.attach("sample", sample); runtime.attach("border", border);
+        bool publishedBeforeFeedback = false;
+        connect(sample, &ReplicaWindow::colorLogicTriggered, &runtime, [&] {
+            publishedBeforeFeedback = runtime.accountTriggers_.contains(123);
+        });
+        QSignalSpy triggered(sample, &ReplicaWindow::colorLogicTriggered);
+        const auto completeFeedback = [&] {
+            if (rule.triggerFeedback == TriggerFeedback::Audio) {
+                emit channels.first()->playbackFinished(channels.first()->attempt);
+            } else if (rule.triggerFeedback == TriggerFeedback::Popup) {
+                QTest::mouseClick(sample, Qt::LeftButton);
+            }
+        };
+        emit sample->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(triggered.size(), 1);
+        QVERIFY(publishedBeforeFeedback);
+        QVERIFY(runtime.accountTriggers_.contains(123)); // Eligible while feedback is still pending.
+        const auto remaining = runtime.recentAccountTriggers_.value(71).expiresAt - runtime.clock_.elapsed();
+        QVERIFY(remaining > 9500 && remaining <= 10000);
+        QCOMPARE(border->isFlashActive(), rule.triggerFeedback != TriggerFeedback::None);
+        completeFeedback();
+        QTRY_VERIFY(!border->isFlashActive());
+        QVERIFY(runtime.accountTriggers_.contains(123));
+        QCOMPARE(border->borderColor(), color);
+        emit sample->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(triggered.size(), 1); // Completion cannot rearm while the condition stays true.
+        QVERIFY(!border->isFlashActive());
+        emit sample->colorStatisticsChanged({10, 0, 0});
+        emit sample->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(triggered.size(), 2);
+        QCOMPARE(border->isFlashActive(), rule.triggerFeedback != TriggerFeedback::None);
+        completeFeedback();
+        QTRY_VERIFY(!border->isFlashActive());
+        QCOMPARE(border->borderColor(), color);
+        runtime.stop();
+        manager.close();
+    }
+
+    void sharedLogicBorderAndMiddleClickSwitchBetweenRules()
+    {
+        NativeGateway gateway(functions());
+        MainWindow manager(gateway, freshConfigPath());
+        auto* window = manager.createReplica();
+        window->selectSource({123, QStringLiteral("EVE - A")});
+        auto* runtime = manager.findChild<WindowColorLogicRuntime*>();
+
+        ColorRule warning;
+        warning.number = 31;
+        warning.targetReplicaId = "test-A";
+        warning.windowConditions = {{QStringLiteral("红色"), QStringLiteral(">=2"), -1, "test-A"}};
+        warning.windowSwitches = {{"test-A", QColor(46, 204, 64), 32}};
+        warning.postTriggerAction = PostTriggerAction::ReverseWait;
+        ColorRule reverse = warning;
+        reverse.number = 32;
+        reverse.enabled = false;
+        reverse.windowConditions[0].expression = QStringLiteral("<2");
+        reverse.windowSwitches = {{"test-A", QColor(80, 160, 255), 0}};
+
+        runtime->configure({warning, reverse}, {{"test-A", {31, 32}}});
+        runtime->attach("test-A", window);
+        QSignalSpy triggered(window, &ReplicaWindow::colorLogicTriggered);
+        QCOMPARE(window->borderColor(), QColor(46, 204, 64));
+        QVERIFY(!window->isFlashActive());
+        emit window->colorStatisticsChanged({10, 0, 0});
+        QCOMPARE(triggered.size(), 0);
+        QCOMPARE(window->borderColor(), QColor(46, 204, 64));
+        QVERIFY(!window->isFlashActive());
+
+        emit window->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(triggered.size(), 1);
+        QCOMPARE(triggered.first()[0].toInt(), 31);
+        QCOMPARE(window->borderColor(), QColor(46, 204, 64));
+        QVERIFY(!window->isFlashActive());
+        emit window->colorStatisticsChanged({10, 0, 0});
+        QVERIFY(!window->isFlashActive());
+        QCOMPARE(window->borderColor(), QColor(46, 204, 64));
+
+        QTest::mouseClick(window, Qt::MiddleButton);
+        QCOMPARE(window->borderColor(), QColor(80, 160, 255));
+        QVERIFY(!window->isFlashActive());
+        emit window->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(triggered.size(), 1);
+        emit window->colorStatisticsChanged({10, 0, 0});
+        QCOMPARE(triggered.size(), 2);
+        QCOMPARE(triggered.last()[0].toInt(), 32);
+        QCOMPARE(window->borderColor(), QColor(80, 160, 255));
+        QVERIFY(!window->isFlashActive());
+
+        QTest::mouseClick(window, Qt::MiddleButton);
+        QCOMPARE(window->borderColor(), QColor(46, 204, 64));
+        QVERIFY(!window->isFlashActive());
+        emit window->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(triggered.size(), 3);
+        QCOMPARE(triggered.last()[0].toInt(), 31);
+        QCOMPARE(window->borderColor(), QColor(46, 204, 64));
+        QVERIFY(!window->isFlashActive());
+        manager.close();
+    }
+
+
+    void colorLogicChoicesUseRegionPresetsWithoutAnySmallWindows()
+    {
+        QTemporaryDir directory;
+        JsonConfigStore store(directory.path());
+        AppConfig config;
+        const QRect region(10, 20, 100, 50);
+        config.regionPresets = {{QStringLiteral("护盾"), region}, {QStringLiteral("本地"), region}};
+        ColorRule rule; rule.number = 1;
+        rule.targetReplicaId = logicRegionPresetId(QStringLiteral("本地"));
+        rule.windowConditions = {{QStringLiteral("红色"), QStringLiteral(">=2"), -1,
+            logicRegionPresetId(QStringLiteral("护盾"))}};
+        config.colorRules = {rule};
+        QString error;
+        QVERIFY2(store.save(config, &error), qPrintable(error));
+        NativeGateway gateway(functions());
+        MainWindow manager(gateway, directory.path());
+        QVERIFY(manager.replicaWindows().isEmpty());
+        auto* table = manager.findChild<QTableWidget*>(QStringLiteral("colorRuleTable"));
+        QVERIFY(table->item(0, 2)->text().startsWith(QStringLiteral("护盾：")));
+        QCOMPARE(table->item(0, 4)->text(), QStringLiteral("无"));
+        QTimer::singleShot(0, [] {
+            auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+            QVERIFY(dialog);
+            auto* condition = dialog->findChild<QComboBox*>(QStringLiteral("conditionWindow1"));
+            QCOMPARE(condition->currentText(), QStringLiteral("护盾"));
+            QCOMPARE(condition->count(), 3); // Both presets remain distinct even with equal rectangles.
+            QCOMPARE(condition->itemText(2), QStringLiteral("本地"));
+            QVERIFY(!dialog->findChild<QComboBox*>(QStringLiteral("logicTargetWindow")));
+            auto* tabs = dialog->findChild<QTabWidget*>(QStringLiteral("colorRuleEditorTabs"));
+            QVERIFY(tabs);
+            QCOMPARE(tabs->tabText(1), QStringLiteral("状态切换设置"));
+            dialog->grab().save(QCoreApplication::applicationDirPath() + QStringLiteral("/region-logic-dialog.png"));
+            dialog->reject();
+        });
+        manager.findChild<ColorRuleController*>()->editColorRuleNumber(1);
+    }
+
+    void customWindowChoiceFallsBackToCoordinates()
+    {
+        ReplicaConfig replica; replica.capturedRegion = QRect(10, 20, 100, 50);
+        const auto custom = colorLogicReplicaLabel(replica, 0, {});
+        QVERIFY(custom.contains(QStringLiteral("自定义 (10,20) 100×50")));
+        replica.capturedRegion = {};
+        QVERIFY(colorLogicReplicaLabel(replica, 0, {}).contains(QStringLiteral("完整窗口")));
+    }
+
+    void windowConditionEditorAddsAndRemovesSlots()
+    {
+        ReplicaConfig a; a.id = "A";
+        ReplicaConfig b; b.id = "B";
+        ColorRule initial;
+        initial.number = 7;
+        initial.windowConditions = {{QStringLiteral("红色"), QStringLiteral(">=2"), -1, "A"},
+            {QStringLiteral("白色"), QStringLiteral("<2"), -1, "B"}};
+        initial.targetReplicaId = "A";
+        a.capturedRegion = QRect(10, 20, 100, 50);
+        b.capturedRegion = QRect(30, 40, 120, 60);
+        QTimer::singleShot(0, [] {
+            auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+            QVERIFY(dialog);
+            QVERIFY(!dialog->findChild<QComboBox*>(QStringLiteral("colorRulePriority")));
+            QVERIFY(dialog->findChild<QComboBox*>(QStringLiteral("conditionWindow1"))->currentText().contains(QStringLiteral("护盾")));
+            QVERIFY(dialog->findChild<QComboBox*>(QStringLiteral("conditionWindow2"))->currentText().contains(QStringLiteral("本地")));
+            QVERIFY(!dialog->findChild<QComboBox*>(QStringLiteral("logicTargetWindow")));
+            QCOMPARE(dialog->findChild<QComboBox*>(QStringLiteral("conditionWindow1"))->currentData().toString(), QStringLiteral("A"));
+            QCOMPARE(dialog->findChild<QComboBox*>(QStringLiteral("conditionWindow2"))->currentData().toString(), QStringLiteral("B"));
+            dialog->findChild<QPushButton*>(QStringLiteral("addWindowCondition"))->click();
+            auto* third = dialog->findChild<QComboBox*>(QStringLiteral("conditionWindow3"));
+            QVERIFY(third);
+            const auto removeButtons = third->parentWidget()->findChildren<QPushButton*>();
+            for (auto* button : removeButtons) {
+                if (button->text() == QStringLiteral("移除条件")) { button->click(); break; }
+            }
+            auto* tabs = dialog->findChild<QTabWidget*>(QStringLiteral("colorRuleEditorTabs"));
+            QCOMPARE(tabs->tabText(1), QStringLiteral("状态切换设置"));
+            tabs->setCurrentIndex(1);
+            dialog->findChild<QCheckBox*>(QStringLiteral("switchBorderEnabled1"))->setChecked(true);
+            auto* middle = dialog->findChild<QComboBox*>(QStringLiteral("triggeredSwitchRule"));
+            middle->setCurrentIndex(middle->findData(9));
+            dialog->grab().save(QCoreApplication::applicationDirPath() + QStringLiteral("/window-logic-dialog.png"));
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Save)->click();
+        });
+        ColorRule alternate; alternate.number = 9; alternate.note = QStringLiteral("反预警");
+        const auto edited = promptColorRule(nullptr, initial, {a, b}, {alternate},
+            {{"A", QStringLiteral("护盾")}, {"B", QStringLiteral("本地")}});
+        QVERIFY(edited);
+        QCOMPARE(edited->windowConditions.size(), 2);
+        QCOMPARE(edited->targetReplicaId, QStringLiteral("A"));
+        QCOMPARE(edited->windowConditions, initial.windowConditions);
+        QCOMPARE(edited->windowSwitches.size(), 2);
+        QCOMPARE(edited->windowSwitches.first().replicaId, QStringLiteral("A"));
+        QCOMPARE(edited->windowSwitches.first().borderColor, QColor(255, 80, 80));
+        QCOMPARE(edited->windowSwitches.first().middleClickRule, 9);
+        QCOMPARE(edited->windowSwitches.last().middleClickRule, 9);
+        QCOMPARE(edited->jumpToRule, 9);
+    }
+
+    void centralColorToleranceSettingsPersistAndCancel()
     {
         const QString path = freshConfigPath();
         JsonConfigStore store(path);
         AppConfig initial;
+        initial.colorTolerances = {{QStringLiteral("#123456"), 12}};
+        initial.regionPresets = {{QStringLiteral("护盾"), QRect(0, 0, 20, 10)}};
         ReplicaConfig replica;
         replica.statisticsIntervalMs = 0;
-        replica.statisticsColors = {{QStringLiteral("#123456"), 12}};
-        initial.replicas.append(replica);
+        replica.capturedRegion = initial.regionPresets.first().region;
+        initial.replicas = {replica, replica};
+        initial.replicas[1].id = "second-window";
         QString error;
         QVERIFY2(store.save(initial, &error), qPrintable(error));
         NativeGateway gateway(functions());
         const QList<PixelColorTarget> expected{{QStringLiteral("#ffaa00"), 7}};
         {
             MainWindow manager(gateway, path);
-            auto* row = manager.replicaRows().first();
-            QVERIFY(row->statisticsColors() == replica.statisticsColors);
-            QTimer::singleShot(0, [] {
-                auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
-                QVERIFY(dialog);
-                auto* table = dialog->findChild<QTableWidget*>(QStringLiteral("statisticsColorsTable"));
-                QVERIFY(table);
-                QCOMPARE(table->rowCount(), 1);
-                auto* editor = static_cast<PixelColorEditor*>(table->cellWidget(0, 0));
-                editor->combo()->setCurrentText(QStringLiteral("#ffaa00"));
-                editor->tolerance()->setValue(7);
-                dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Save)->click();
-            });
-            row->findChild<QPushButton*>(QStringLiteral("statisticsColors"))->click();
-            QVERIFY(row->statisticsColors() == expected);
-            QVERIFY(manager.replicaWindows().first()->statisticsColors() == expected);
+            for (auto* row : manager.replicaRows()) {
+                QCOMPARE(row->statisticsColors(), initial.colorTolerances);
+                QVERIFY(!row->findChild<QPushButton*>(QStringLiteral("statisticsColors")));
+            }
+            auto* settings = manager.findChild<QPushButton*>(QStringLiteral("colorToleranceSettings"));
+            QVERIFY(settings); QVERIFY(settings->isEnabled());
+            for (bool save : {false, true}) {
+                QTimer::singleShot(0, [save] {
+                    auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+                    QVERIFY(dialog);
+                    auto* scope = dialog->findChild<QComboBox*>(QStringLiteral("colorToleranceScope"));
+                    QCOMPARE(scope->count(), 2);
+                    scope->setCurrentIndex(1);
+                    auto* inherit = dialog->findChild<QCheckBox*>(QStringLiteral("inheritColorTolerances"));
+                    QVERIFY(inherit->isChecked());
+                    inherit->click();
+                    QTimer::singleShot(0, [] {
+                        auto* editorDialog = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+                        QVERIFY(editorDialog);
+                        auto* table = editorDialog->findChild<QTableWidget*>(QStringLiteral("statisticsColorsTable"));
+                        QVERIFY(table); QCOMPARE(table->rowCount(), 1);
+                        auto* editor = static_cast<PixelColorEditor*>(table->cellWidget(0, 0));
+                        editor->combo()->setCurrentText(QStringLiteral("#ffaa00"));
+                        editor->tolerance()->setValue(7);
+                        editorDialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Save)->click();
+                    });
+                    dialog->findChild<QPushButton*>(QStringLiteral("editColorTolerances"))->click();
+                    dialog->findChild<QDialogButtonBox*>()->button(save ? QDialogButtonBox::Save : QDialogButtonBox::Cancel)->click();
+                });
+                settings->click();
+                for (auto* row : manager.replicaRows()) {
+                    QCOMPARE(row->statisticsColors(), save ? expected : initial.colorTolerances);
+                }
+                for (auto* window : manager.replicaWindows()) {
+                    QCOMPARE(window->statisticsColors(), save ? expected : initial.colorTolerances);
+                }
+            }
             manager.close();
         }
         AppConfig saved;
         QVERIFY2(store.load(saved, &error), qPrintable(error));
-        QVERIFY(saved.replicas.first().statisticsColors == expected);
+        QCOMPARE(saved.colorTolerances, initial.colorTolerances);
+        QCOMPARE(saved.regionPresets.first().colorTolerances, expected);
         MainWindow restored(gateway, path);
-        QVERIFY(restored.replicaRows().first()->statisticsColors() == expected);
-        QVERIFY(restored.replicaWindows().first()->statisticsColors() == expected);
+        for (auto* row : restored.replicaRows()) { QCOMPARE(row->statisticsColors(), expected); }
+        for (auto* window : restored.replicaWindows()) { QCOMPARE(window->statisticsColors(), expected); }
+    }
+
+    void conditionBoundsRelationRestoresAndSaves()
+    {
+        ReplicaConfig replica; replica.id = "A";
+        ColorRule initial; initial.number = 1;
+        initial.windowConditions = {{QStringLiteral("红色"), QStringLiteral(">100|<10"), -1, "A"}};
+        for (auto relation : {TriggerConditionRelation::Or, TriggerConditionRelation::And}) {
+            QTimer::singleShot(0, [relation] {
+                auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()); QVERIFY(dialog);
+                auto* bounds = dialog->findChild<QComboBox*>(QStringLiteral("triggerCondition1BoundsRelation"));
+                QVERIFY(bounds); QVERIFY(bounds->isEnabled());
+                QCOMPARE(bounds->currentData().toInt(), static_cast<int>(TriggerConditionRelation::Or));
+                QCOMPARE(dialog->findChild<QSpinBox*>(QStringLiteral("triggerCondition1LowerValue"))->value(), 100);
+                QCOMPARE(dialog->findChild<QSpinBox*>(QStringLiteral("triggerCondition1UpperValue"))->value(), 10);
+                bounds->setCurrentIndex(bounds->findData(static_cast<int>(relation)));
+                dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Save)->click();
+            });
+            const auto edited = promptColorRule(nullptr, initial, {replica}, {}, {{"A", QStringLiteral("护盾")}});
+            QVERIFY(edited);
+            QCOMPARE(edited->windowConditions.first().expression, relation == TriggerConditionRelation::Or
+                ? QStringLiteral(">100|<10") : QStringLiteral(">100&<10"));
+        }
+    }
+
+    void stateSwitchSettingsShareOneTargetForManualAndTriggeredTransitions()
+    {
+        ReplicaConfig replica; replica.id = "A";
+        ColorRule initial; initial.number = 1;
+        initial.windowConditions = {{QStringLiteral("红色"), QStringLiteral(">=2"), -1, replica.id}};
+        ColorRule other; other.number = 9; other.note = QStringLiteral("反预警");
+        for (const auto effect : {PostTriggerAction::Loop, PostTriggerAction::ReverseWait, PostTriggerAction::Jump}) {
+            QTimer::singleShot(0, [effect] {
+                auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()); QVERIFY(dialog);
+                auto* tabs = dialog->findChild<QTabWidget*>(QStringLiteral("colorRuleEditorTabs"));
+                QCOMPARE(tabs->tabText(1), QStringLiteral("状态切换设置"));
+                auto* action = dialog->findChild<QComboBox*>(QStringLiteral("postTriggerAction"));
+                auto* target = dialog->findChild<QComboBox*>(QStringLiteral("triggeredSwitchRule"));
+                QVERIFY(action); QVERIFY(target);
+                QVERIFY(tabs->widget(1)->isAncestorOf(action));
+                QVERIFY(tabs->widget(1)->isAncestorOf(target));
+                QVERIFY(!dialog->findChild<QComboBox*>(QStringLiteral("switchMiddleRule1")));
+                QCOMPARE(action->count(), 3);
+                action->setCurrentIndex(action->findData(static_cast<int>(effect)));
+                QVERIFY(target->isEnabled());
+                auto* save = dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Save);
+                if (effect == PostTriggerAction::Jump) {
+                    save->click();
+                    QCOMPARE(tabs->currentIndex(), 1);
+                    QVERIFY(dialog->findChild<QLabel*>(QStringLiteral("stateSwitchError"))->isVisible());
+                    QVERIFY(!qobject_cast<QMessageBox*>(QApplication::activeModalWidget()));
+                }
+                target->setCurrentIndex(target->findData(9));
+                save->click();
+            });
+            const auto edited = promptColorRule(nullptr, initial, {replica}, {other}, {{"A", QStringLiteral("护盾")}});
+            QVERIFY(edited);
+            QCOMPARE(edited->postTriggerAction, effect);
+            QCOMPARE(edited->jumpToRule, 9);
+            QCOMPARE(edited->windowSwitches.size(), 1);
+            QCOMPARE(edited->windowSwitches.first().middleClickRule, 9);
+        }
+        initial.windowSwitches = {{"A", QColor(46, 204, 64), 9}};
+        QTimer::singleShot(0, [] {
+            auto* dialog = qobject_cast<QDialog*>(QApplication::activeModalWidget()); QVERIFY(dialog);
+            auto* target = dialog->findChild<QComboBox*>(QStringLiteral("triggeredSwitchRule"));
+            QCOMPARE(target->currentData().toInt(), 9);
+            dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Save)->click();
+        });
+        const auto restored = promptColorRule(nullptr, initial, {replica}, {other}, {{"A", QStringLiteral("护盾")}});
+        QVERIFY(restored);
+        QCOMPARE(restored->windowSwitches, initial.windowSwitches);
     }
 
     void colorEditorSupportsExactCustomRgbAndRuleDialogPreservesIt()
@@ -199,16 +1272,23 @@ private slots:
             QVERIFY(tolerance);
             QCOMPARE(color->currentText(), QStringLiteral("#123456"));
             QCOMPARE(tolerance->value(), 12);
+            QVERIFY(!tolerance->isVisible());
             color->setCurrentText(QStringLiteral("#00ff00"));
             tolerance->setValue(20);
             auto* buttons = dialog->findChild<QDialogButtonBox*>();
             buttons->button(QDialogButtonBox::Save)->click();
         });
-        const auto edited = promptColorRule(nullptr, initial);
+        ReplicaConfig replica; replica.id = QStringLiteral("dialog-window");
+        initial.targetReplicaId = replica.id;
+        if (initial.triggerCondition1.isEmpty()) {
+            initial.triggerCondition1 = {QStringLiteral("红色"), QStringLiteral(">=2")};
+        }
+        initial.triggerCondition1.replicaId = replica.id;
+        const auto edited = promptColorRule(nullptr, initial, {replica}, {}, {{replica.id, QStringLiteral("测试区域")}});
         QVERIFY(edited.has_value());
-        QCOMPARE(edited->triggerCondition1.pixel, QStringLiteral("#00ff00"));
-        QCOMPARE(edited->triggerCondition1.tolerance, 20);
-        QCOMPARE(edited->triggerCondition1.expression, QStringLiteral(">=2"));
+        QCOMPARE(edited->windowConditions.first().pixel, QStringLiteral("#00ff00"));
+        QCOMPARE(edited->windowConditions.first().tolerance, -1);
+        QCOMPARE(edited->windowConditions.first().expression, QStringLiteral(">=2"));
     }
 
     void colorRuleDialogRestoresAndSavesConditionRelation_data()
@@ -235,7 +1315,13 @@ private slots:
                 initialOr ? TriggerConditionRelation::And : TriggerConditionRelation::Or)));
             dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Save)->click();
         });
-        const auto edited = promptColorRule(nullptr, initial);
+        ReplicaConfig replica; replica.id = QStringLiteral("dialog-window");
+        initial.targetReplicaId = replica.id;
+        if (initial.triggerCondition1.isEmpty()) {
+            initial.triggerCondition1 = {QStringLiteral("红色"), QStringLiteral(">=2")};
+        }
+        initial.triggerCondition1.replicaId = replica.id;
+        const auto edited = promptColorRule(nullptr, initial, {replica}, {}, {{replica.id, QStringLiteral("测试区域")}});
         QVERIFY(edited);
         QCOMPARE(edited->triggerConditionRelation,
                  initialOr ? TriggerConditionRelation::And : TriggerConditionRelation::Or);
@@ -279,12 +1365,11 @@ private slots:
         original->setColorLogicSlot(1, 1);
         original->setColorLogicEnabled(true);
         original->setColorLogicSlotColor(1, QColor(QStringLiteral("#123456")));
-        original->setSourceNameVisible(true);
         original->moveTo(QPoint(70, 60));
         auto* copy = manager.duplicateReplica(original->replicaId());
         QVERIFY(copy != nullptr);
         QVERIFY(copy->pos() != original->pos());
-        QCOMPARE(copy->colorLogicSlotColor(1), original->colorLogicSlotColor(1));
+        QVERIFY(!copy->colorLogicEnabled());
         QCoreApplication::processEvents();
         auto* row = manager.replicaRows().last();
         row->setVisibilityChecked(false);
@@ -300,16 +1385,18 @@ private slots:
         QCOMPARE(copied.position, QPoint(111, 222));
         QCOMPARE(copied.size, acceptedSize);
         QCOMPARE(copied.capturedRegion, QRect(100, 100, 80, 40));
-        QCOMPARE(copied.slotColor1, QColor(QStringLiteral("#123456")));
-        QCOMPARE(copied.colorLogicSlotRule[0], 1);
-        QVERIFY(copied.colorLogicEnabled);
-        QVERIFY(copied.sourceNameVisible);
+        QCOMPARE(copied.colorLogicSlotRule[0], 0);
+        QVERIFY(!copied.colorLogicEnabled);
+        QVERIFY(copied.id != actual.replicas.first().id);
         QVERIFY(!copied.visible);
     }
     void autosavingGeometryDoesNotCancelAnActivationRequest()
     {
         NativeGateway gateway(functions());
         MainWindow manager(gateway, freshConfigPath());
+        // This test checks persistence, so real keyboard/mouse input must not gate activation.
+        manager.findChild<QuickSwitchService*>()->stop();
+        gateway.setAutomaticActivationMouseQuietPeriodMs(100);
         auto* replica = manager.createReplica();
         replica->selectSource({123, QStringLiteral("EVE - Alpha")});
         replica->setStatisticsInterval(0);
@@ -469,22 +1556,6 @@ private slots:
         QCOMPARE(visibilityChanged.first().first().toBool(), false);
     }
 
-    void replicaRowOffersSourceNameOverlaySwitchDisabledByDefault()
-    {
-        ReplicaRow row(1);
-        auto* sourceNameVisibility =
-            row.findChild<QCheckBox*>(QStringLiteral("sourceNameVisibility"));
-        QVERIFY(sourceNameVisibility != nullptr);
-        QVERIFY(!sourceNameVisibility->isChecked());
-
-        QSignalSpy visibilityChanged(&row, &ReplicaRow::sourceNameVisibilityChanged);
-        QVERIFY(visibilityChanged.isValid());
-        sourceNameVisibility->setChecked(true);
-
-        QCOMPARE(visibilityChanged.count(), 1);
-        QCOMPARE(visibilityChanged.first().first().toBool(), true);
-    }
-
     void replicaRowOffersDisabledOrAtLeastOneAndAHalfSecondStatisticsIntervals()
     {
         ReplicaRow row(1);
@@ -582,43 +1653,25 @@ private slots:
         QCOMPARE(slot->currentData().toInt(), 1);
     }
 
-    void hidingReplicaLocksSlotTwoAndResetsEnableStateToOne()
+    void hidingReplicaKeepsItsGlobalLogicRunning()
     {
         NativeGateway gateway(functions());
         MainWindow manager(gateway, freshConfigPath());
-        static_cast<void>(manager.createReplica());
-        ReplicaRow& row = *manager.replicaRows().first();
-        auto* visibility = row.findChild<QCheckBox*>(QStringLiteral("replicaVisibility"));
-        auto* enabled = row.findChild<QCheckBox*>(QStringLiteral("colorLogicEnabled"));
-        auto* slot = row.findChild<QComboBox*>(QStringLiteral("colorLogicActiveSlot"));
-        auto* slotA = row.findChild<QComboBox*>(QStringLiteral("colorLogicSlotA"));
-        auto* slotB = row.findChild<QComboBox*>(QStringLiteral("colorLogicSlotB"));
-        QVERIFY(slotA->isEnabled());
-        QVERIFY(slotB->isEnabled());
-        QList<ColorRule> rules;
-        rules.append({1, QStringLiteral("红"), {}, {}, TriggerFeedback::None, {},
-                      PostTriggerAction::Loop});
-        rules.append({2, QStringLiteral("蓝"), {}, {}, TriggerFeedback::None, {},
-                      PostTriggerAction::Loop});
-        row.setColorRules(rules);
-        slotB->setCurrentIndex(1);
-        slot->setCurrentIndex(1);
-
-        QSignalSpy enabledChanged(&row, &ReplicaRow::colorLogicEnabledChanged);
-        QSignalSpy slotChanged(&row, &ReplicaRow::activeColorLogicSlotChanged);
-        visibility->setChecked(false);
-        QVERIFY(slotA->isEnabled());
-        QVERIFY(!slotB->isEnabled());
-        QCOMPARE(slotB->currentData().toInt(), 0);
-        QCOMPARE(slot->currentData().toInt(), 1);
-        QCOMPARE(slot->itemData(1, Qt::UserRole - 1).toBool(), false);
-        QVERIFY(enabled->isChecked());
-        QCOMPARE(enabledChanged.last().first().toBool(), true);
-        QCOMPARE(slotChanged.last().first().toInt(), 1);
-
-        visibility->setChecked(true);
-        QVERIFY(slotB->isEnabled());
-        QCOMPARE(slot->itemData(1, Qt::UserRole - 1).toBool(), true);
+        auto* window = manager.createReplica();
+        window->selectSource({123, QStringLiteral("EVE - Alpha")});
+        auto* row = manager.replicaRows().first();
+        ColorRule rule{1, QStringLiteral("红色"), QStringLiteral("红色"), QStringLiteral(">=2"),
+            TriggerFeedback::None, {}, PostTriggerAction::ReverseWait};
+        bindGlobalRule(manager, window, rule);
+        QVERIFY(row->findChild<QComboBox*>(QStringLiteral("colorLogicSlotA"))->isHidden());
+        QVERIFY(row->findChild<QCheckBox*>(QStringLiteral("colorLogicEnabled"))->isHidden());
+        QVERIFY(row->findChild<QLabel*>(QStringLiteral("colorLogicSummary")));
+        QSignalSpy triggered(window, &ReplicaWindow::colorLogicTriggered);
+        row->setVisibilityChecked(false);
+        QVERIFY(!window->isVisible());
+        QVERIFY(window->statisticsIntervalMs() > 0);
+        emit window->colorStatisticsChanged({10, 2, 0});
+        QCOMPARE(triggered.size(), 1);
     }
 
     void replicaRowOffersSlotColorButtonsWithDefaults()
@@ -740,15 +1793,28 @@ private slots:
         row.show();
         auto* red = row.findChild<QLabel*>(QStringLiteral("redPixelPercentage"));
         QVERIFY(red);
+        auto* summary = row.findChild<QLabel*>(QStringLiteral("collapsedPixelStatistics"));
+        QVERIFY(summary);
+        QVERIFY(!summary->isVisible());
         row.setPixelStatistics(1, 2);
         row.setCollapsed(true);
         QVERIFY(!red->isVisible());
-        row.setPixelStatistics(8, 9);
+        QVERIFY(summary->isVisible());
+        QCOMPARE(summary->text(), QStringLiteral("红色像素：1    白色像素：2    蓝色像素：0"));
+        row.setColorStatistics(PixelStatistics{30, 8, 9, 13});
+        QCOMPARE(summary->text(), QStringLiteral("红色像素：8    白色像素：9    蓝色像素：13"));
         QCOMPARE(red->text(), QStringLiteral("红色像素：1"));
+        row.hide();
+        row.setColorStatistics(PixelStatistics{40, 10, 12, 18});
+        QCOMPARE(summary->text(), QStringLiteral("红色像素：8    白色像素：9    蓝色像素：13"));
+        row.show();
+        QCOMPARE(summary->text(), QStringLiteral("红色像素：10    白色像素：12    蓝色像素：18"));
         row.setCollapsed(false);
-        QCOMPARE(red->text(), QStringLiteral("红色像素：8"));
+        QVERIFY(!summary->isVisible());
+        QCOMPARE(red->text(), QStringLiteral("红色像素：10"));
         row.setCollapsed(true);
         row.clearPixelStatistics();
+        QCOMPARE(summary->text(), QStringLiteral("红色像素：--    白色像素：--    蓝色像素：--"));
         row.setCollapsed(false);
         QCOMPARE(red->text(), QStringLiteral("红色像素：--"));
     }
@@ -822,53 +1888,6 @@ private slots:
         QVERIFY(window->isVisible());
     }
 
-    void sourceNameSwitchHidesThumbnailAndShowsExtractedOrangeNameAtReplicaCenter()
-    {
-        NativeGateway gateway(functions());
-        MainWindow manager(gateway, freshConfigPath());
-        manager.show();
-        auto* window = manager.createReplica();
-        auto* row = manager.replicaRows().first();
-        lastThumbnailVisible = false;
-        window->selectSource(WindowInfo{123, QStringLiteral("EVE - MysteriousmanA")});
-
-        auto* sourceNameVisibility =
-            row->findChild<QCheckBox*>(QStringLiteral("sourceNameVisibility"));
-        auto* overlay = window->findChild<QLabel*>(QStringLiteral("sourceNameOverlay"));
-        QVERIFY(sourceNameVisibility != nullptr);
-        QVERIFY(overlay != nullptr);
-        QCOMPARE(overlay->parentWidget(), window);
-        QVERIFY(!overlay->isVisible());
-        QVERIFY(lastThumbnailVisible);
-
-        sourceNameVisibility->setChecked(true);
-        QCoreApplication::processEvents();
-
-        QVERIFY(window->source().has_value());
-        QVERIFY(window->isVisible());
-        QVERIFY(!overlay->isHidden());
-        QVERIFY(overlay->isVisible());
-        QVERIFY(!lastThumbnailVisible);
-        QCOMPARE(overlay->text(), QStringLiteral("MysteriousmanA"));
-        QCOMPARE(overlay->palette().color(QPalette::WindowText), QColor(255, 140, 0));
-        const QPoint offset = overlay->geometry().center() - window->rect().center();
-        QVERIFY(qAbs(offset.x()) <= 1);
-        QVERIFY(qAbs(offset.y()) <= 1);
-
-        sourceNameVisibility->setChecked(false);
-        QCoreApplication::processEvents();
-        QVERIFY(!overlay->isVisible());
-        QVERIFY(lastThumbnailVisible);
-
-        window->selectSource(WindowInfo{
-            456,
-            QStringLiteral("星战前夜：晨曦[Infinity] - 噩梦级"),
-        });
-        sourceNameVisibility->setChecked(true);
-        QCoreApplication::processEvents();
-        QCOMPARE(overlay->text(), QStringLiteral("噩梦级"));
-    }
-
     void closingOneReplicaLeavesTheOthersAlive()
     {
         NativeGateway gateway(functions());
@@ -910,40 +1929,6 @@ private slots:
         }
     }
 
-    void advancedLogicPagePersistsWhitelistAndPriorityChanges()
-    {
-        QTemporaryDir directory;
-        JsonConfigStore store(directory.path());
-        AppConfig config;
-        ColorRule warning;
-        warning.number = 1;
-        ColorRule acceleration;
-        acceleration.number = 2;
-        config.colorRules = {warning, acceleration};
-        WhitelistSequence sequence;
-        sequence.id = QStringLiteral("evade");
-        sequence.name = QStringLiteral("规避");
-        sequence.nodes = {{1, WhitelistNodeEffect::Keep, {}}, {2, WhitelistNodeEffect::Suppress, {}}};
-        config.advancedLogic = {true, {sequence}};
-        QString error;
-        QVERIFY2(store.save(config, &error), qPrintable(error));
-        NativeGateway gateway(functions());
-        MainWindow manager(gateway, directory.path());
-        auto* page = manager.findChild<AdvancedLogicPage*>();
-        QVERIFY(page);
-        QCOMPARE(page->configuration().sequences.size(), 1);
-        auto* enabled = page->findChild<QCheckBox*>(QStringLiteral("advancedLogicEnabled"));
-        QVERIFY(enabled->isChecked());
-        enabled->setChecked(false);
-        auto* priorities = page->findChild<QTableWidget*>(QStringLiteral("colorRulePriorityTable"));
-        QVERIFY(priorities);
-        qobject_cast<QComboBox*>(priorities->cellWidget(0, 1))->setCurrentIndex(2);
-        AppConfig saved;
-        QVERIFY2(store.load(saved, &error), qPrintable(error));
-        QVERIFY(!saved.advancedLogic.enabled);
-        QCOMPARE(saved.advancedLogic.sequences, config.advancedLogic.sequences);
-        QCOMPARE(saved.colorRules.first().priority, ColorRulePriority::Immediate);
-    }
 
     void homeHasNineTabsAndCreateButton()
     {
@@ -958,7 +1943,7 @@ private slots:
         QCOMPARE(tabs->tabText(1), QStringLiteral("小窗列表"));
         QCOMPARE(tabs->tabText(2), QStringLiteral("区域预设"));
         QCOMPARE(tabs->tabText(3), QStringLiteral("图色逻辑"));
-        QCOMPARE(tabs->tabText(4), QStringLiteral("高级逻辑"));
+        QCOMPARE(tabs->tabText(4), QStringLiteral("逻辑列表"));
         QCOMPARE(tabs->tabText(5), QStringLiteral("快捷切屏"));
         QCOMPARE(tabs->tabText(6), QStringLiteral("页面分区"));
         QCOMPARE(tabs->tabText(7), QStringLiteral("远征计时"));
@@ -1042,17 +2027,17 @@ private slots:
         QCOMPARE(rules->rowCount(), 1);
         QCOMPARE(rules->columnCount(), 7);
         const QStringList headers{
-            QStringLiteral("编号"), QStringLiteral("备注"), QStringLiteral("触发条件 1"),
-            QStringLiteral("条件关系"), QStringLiteral("触发条件 2"),
-            QStringLiteral("触发反馈"), QStringLiteral("触发后操作")};
+            QStringLiteral("编号"), QStringLiteral("备注"), QStringLiteral("区域条件槽"),
+            QStringLiteral("条件关系"), QStringLiteral("状态切换设置"),
+            QStringLiteral("触发反馈"), QStringLiteral("触发后效果")};
         for (int column = 0; column < headers.size(); ++column) {
             QCOMPARE(rules->horizontalHeaderItem(column)->text(), headers[column]);
         }
         QCOMPARE(rules->item(0, 0)->text(), QStringLiteral("4"));
         QCOMPARE(rules->item(0, 1)->text(), QStringLiteral("护盾"));
-        QCOMPARE(rules->item(0, 2)->text(), QStringLiteral("红色 >=20"));
+        QVERIFY(rules->item(0, 2)->text().isEmpty());
         QCOMPARE(rules->item(0, 3)->text(), QStringLiteral("或（任一满足）"));
-        QCOMPARE(rules->item(0, 4)->text(), QStringLiteral("白色 <=5"));
+        QCOMPARE(rules->item(0, 4)->text(), QStringLiteral("无"));
         QCOMPARE(rules->item(0, 5)->text(), QStringLiteral("弹窗"));
         QCOMPARE(rules->item(0, 6)->text(), QStringLiteral("正向循环"));
 
@@ -1099,10 +2084,6 @@ private slots:
         QCOMPARE(combo->currentText(), QStringLiteral("MysteriousmanB"));
         QCOMPARE(combo->currentData().value<WindowInfo>().hwnd, std::uintptr_t{0});
 
-        auto* sourceName = row.findChild<QCheckBox*>(QStringLiteral("sourceNameVisibility"));
-        QVERIFY(sourceName != nullptr);
-        sourceName->setChecked(true);
-        QVERIFY(row.sourceNameVisible());
         QVERIFY(row.visibilityChecked());
         QCOMPARE(row.colorLogicSlotRule(1), 0);
         QCOMPARE(row.colorLogicSlotRule(2), 0);
@@ -1167,14 +2148,12 @@ private slots:
         auto* row = manager.replicaRows().first();
         auto* interval = row->findChild<QComboBox*>(QStringLiteral("statisticsInterval"));
         auto* slotA = row->findChild<QComboBox*>(QStringLiteral("colorLogicSlotA"));
-        auto* sourceName = row->findChild<QCheckBox*>(QStringLiteral("sourceNameVisibility"));
         auto* enabled = row->findChild<QCheckBox*>(QStringLiteral("colorLogicEnabled"));
-        QVERIFY(interval != nullptr && slotA != nullptr && sourceName != nullptr && enabled != nullptr);
+        QVERIFY(interval != nullptr && slotA != nullptr && enabled != nullptr);
 
         original->selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
         interval->setCurrentIndex(interval->findData(1500));
         slotA->setCurrentIndex(slotA->findData(1));
-        sourceName->setChecked(true);
         enabled->setChecked(true);
 
         auto* copyButton = row->findChild<QPushButton*>(QStringLiteral("copyReplica"));
@@ -1193,7 +2172,7 @@ private slots:
         QVERIFY(copy->source().has_value());
         QCOMPARE(copy->source()->hwnd, std::uintptr_t{123});
         QCOMPARE(copy->statisticsIntervalMs(), 1500);
-        QVERIFY(copy->colorLogicEnabled());
+        QVERIFY(!copy->colorLogicEnabled());
 
         ReplicaRow* copyRow = nullptr;
         for (auto* r : manager.replicaRows()) {
@@ -1202,8 +2181,7 @@ private slots:
             }
         }
         QVERIFY(copyRow != nullptr);
-        QCOMPARE(copyRow->colorLogicSlotRule(1), 1);
-        QVERIFY(copyRow->sourceNameVisible());
+        QCOMPARE(copyRow->colorLogicSlotRule(1), 0);
         auto* copyCombo = copyRow->findChild<QComboBox*>(QStringLiteral("sourceCombo"));
         QVERIFY(copyCombo != nullptr);
         QCOMPARE(copyCombo->currentText(), QStringLiteral("Alpha"));
@@ -1246,6 +2224,7 @@ private slots:
         QVERIFY(slotA != nullptr && enabled != nullptr && interval != nullptr);
         slotA->setCurrentIndex(slotA->findData(1));
         enabled->setChecked(true);
+        bindGlobalRule(manager, first, config.colorRules.first());
         interval->setCurrentIndex(interval->findData(1500));
         first->selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
         second->selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
@@ -1450,9 +2429,6 @@ private slots:
     void replicaRowRenamesSwitchesAndListsPresets()
     {
         ReplicaRow row(1);
-        auto* sourceName = row.findChild<QCheckBox*>(QStringLiteral("sourceNameVisibility"));
-        QVERIFY(sourceName != nullptr);
-        QCOMPARE(sourceName->text(), QStringLiteral("显示角色名(不显示画面)"));
         auto* save = row.findChild<QPushButton*>(QStringLiteral("saveRegionPreset"));
         QVERIFY(save != nullptr);
         QCOMPARE(save->text(), QStringLiteral("保存为新区域预设"));
@@ -1538,7 +2514,6 @@ private slots:
             true,
             2,
             true,
-            true,
             false,
             QPoint(300, 200),
             QSize(720, 480),
@@ -1554,7 +2529,6 @@ private slots:
             1,
             false,
             false,
-            false,
             QPoint(100, 100),
             QSize(360, 240),
             QColor(46, 204, 64),
@@ -1568,7 +2542,7 @@ private slots:
         manager.show();
         QCoreApplication::processEvents();
 
-        QCOMPARE(manager.activeReplicaCount(), std::size_t{2});
+        QCOMPARE(manager.activeReplicaCount(), std::size_t{2}); // Migrated logic reuses the cached windows.
         QCOMPARE(manager.replicaRows().size(), 2);
 
         ReplicaWindow* first = nullptr;
@@ -1593,22 +2567,21 @@ private slots:
         QVERIFY(firstRow != nullptr && secondRow != nullptr);
 
         QCOMPARE(first->statisticsIntervalMs(), 1500);
-        QVERIFY(first->colorLogicEnabled());
-        QCOMPARE(first->activeColorLogicSlot(), 2);
-        QVERIFY(firstRow->sourceNameVisible());
+        QVERIFY(!first->colorLogicEnabled());
+        QCOMPARE(first->activeColorLogicSlot(), 1);
         QVERIFY(firstRow->visibilityChecked());
         QCOMPARE(first->pos(), QPoint(300, 200));
         QCOMPARE(first->size(), QSize(720, 480));
-        QCOMPARE(firstRow->colorLogicSlotRule(1), 1);
-        QCOMPARE(firstRow->colorLogicSlotRule(2), 2);
-        QVERIFY(firstRow->colorLogicSlotColor(1) == QColor(255, 0, 0));
-        QVERIFY(firstRow->colorLogicSlotColor(2) == QColor(0, 0, 255));
+        QCOMPARE(firstRow->colorLogicSlotRule(1), 0);
+        QCOMPARE(firstRow->colorLogicSlotRule(2), 0);
+        QCOMPARE(firstRow->findChild<QLabel*>(QStringLiteral("colorLogicSummary"))->text(),
+            QString{}); // Definitions now refer to presets, not ordinary windows.
 
         QCOMPARE(second->statisticsIntervalMs(), 1500);
         QVERIFY(!secondRow->visibilityChecked());
         QCOMPARE(second->pos(), QPoint(100, 100));
         QCOMPARE(second->size(), QSize(360, 240));
-        QCOMPARE(secondRow->colorLogicSlotRule(1), 2);
+        QCOMPARE(secondRow->colorLogicSlotRule(1), 0);
         QCOMPARE(secondRow->colorLogicSlotRule(2), 0);
     }
 
@@ -1707,9 +2680,6 @@ private slots:
             row->findChild<QComboBox*>(QStringLiteral("sourceCombo")),
             row->findChild<QComboBox*>(QStringLiteral("currentRegionPreset")),
             row->findChild<QComboBox*>(QStringLiteral("statisticsInterval")),
-            row->findChild<QComboBox*>(QStringLiteral("colorLogicSlotA")),
-            row->findChild<QComboBox*>(QStringLiteral("colorLogicSlotB")),
-            row->findChild<QComboBox*>(QStringLiteral("colorLogicActiveSlot")),
         };
         for (auto* combo : combos) {
             QVERIFY(combo != nullptr);
@@ -1766,6 +2736,7 @@ private slots:
         QVERIFY(slotA != nullptr && enabled != nullptr && interval != nullptr && visibility != nullptr);
         slotA->setCurrentIndex(slotA->findData(1));
         enabled->setChecked(true);
+        bindGlobalRule(manager, triggered, config.colorRules.first());
         interval->setCurrentIndex(interval->findData(1500));
         triggered->selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
         other->selectSource(WindowInfo{123, QStringLiteral("EVE Online - Alpha")});
@@ -1831,6 +2802,7 @@ private slots:
         QVERIFY(slotA != nullptr && enabled != nullptr && interval != nullptr);
         slotA->setCurrentIndex(slotA->findData(1));
         enabled->setChecked(true);
+        bindGlobalRule(manager, a1, config.colorRules.first());
         interval->setCurrentIndex(interval->findData(1500));
 
         QTRY_VERIFY_WITH_TIMEOUT(a1->isFlashActive(), 2000);
@@ -1887,6 +2859,7 @@ private slots:
         QVERIFY(slotA != nullptr && enabled != nullptr && interval != nullptr);
         slotA->setCurrentIndex(slotA->findData(1));
         enabled->setChecked(true);
+        bindGlobalRule(manager, first, config.colorRules.first());
         interval->setCurrentIndex(interval->findData(1500));
 
         QTRY_VERIFY_WITH_TIMEOUT(first->isFlashActive(), 2000);
@@ -2092,6 +3065,71 @@ private slots:
         QCOMPARE(manager.replicaWindows().first()->statisticsIntervalMs(), 1500);
     }
 
+    void startupPresetOverridesCachedGeometry_data()
+    {
+        QTest::addColumn<int>("defaultSlot");
+        QTest::addColumn<bool>("hasFirstPreset");
+        QTest::addColumn<int>("expectedSlot");
+        QTest::newRow("unset-uses-preset-1") << 0 << true << 1;
+        QTest::newRow("explicit-preset-1") << 1 << true << 1;
+        QTest::newRow("explicit-preset-2") << 2 << true << 2;
+        QTest::newRow("no-preset-1-keeps-cache") << 0 << false << 0;
+        QTest::newRow("empty-default-keeps-cache") << 3 << true << 0;
+    }
+
+    void startupPresetOverridesCachedGeometry()
+    {
+        QFETCH(int, defaultSlot);
+        QFETCH(bool, hasFirstPreset);
+        QFETCH(int, expectedSlot);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        JsonConfigStore store(directory.path());
+        AppConfig config;
+        ReplicaConfig cached;
+        cached.position = QPoint(30, 40);
+        cached.size = QSize(410, 270);
+        cached.statisticsIntervalMs = 3000;
+        config.replicas = {cached};
+        auto first = cached;
+        first.position = QPoint(120, 140);
+        first.size = QSize(520, 340);
+        first.statisticsIntervalMs = 1500;
+        config.presets[0].hasConfig = hasFirstPreset;
+        config.presets[0].replicas = {first};
+        auto second = cached;
+        second.position = QPoint(240, 260);
+        second.size = QSize(630, 410);
+        second.statisticsIntervalMs = 2500;
+        config.presets[1].hasConfig = true;
+        config.presets[1].replicas = {second};
+        config.defaultPresetSlot = defaultSlot;
+        QString error;
+        QVERIFY2(store.save(config, &error), qPrintable(error));
+
+        NativeGateway gateway(functions());
+        MainWindow manager(gateway, directory.path());
+        manager.show();
+        QCoreApplication::processEvents();
+        QCOMPARE(manager.activeReplicaCount(), std::size_t{1});
+        const auto expected = expectedSlot == 1 ? first : expectedSlot == 2 ? second : cached;
+        const auto verify = [&] {
+            auto* window = manager.replicaWindows().first();
+            QCOMPARE(window->pos(), expected.position);
+            QCOMPARE(window->size(), expected.size);
+            QCOMPARE(window->statisticsIntervalMs(), expected.statisticsIntervalMs);
+        };
+        verify();
+        if (expectedSlot > 0) {
+            auto* load = manager.findChild<QPushButton*>(QStringLiteral("loadPreset%1").arg(expectedSlot));
+            QVERIFY(load);
+            QTest::mouseClick(load, Qt::LeftButton);
+            QCoreApplication::processEvents();
+            QCOMPARE(manager.activeReplicaCount(), std::size_t{1});
+            verify();
+        }
+    }
+
     void defaultPresetLoadsOnStartup()
     {
         QTemporaryDir directory;
@@ -2112,7 +3150,6 @@ private slots:
             {0, 0},
             false,
             1,
-            false,
             true,
             false,
             QPoint(10, 10),
@@ -2214,7 +3251,6 @@ private slots:
             {0, 0},
             false,
             1,
-            false,
             true,
             true,
             QPoint(10, 10),
@@ -2319,7 +3355,6 @@ private slots:
             {0, 0},
             false,
             1,
-            false,
             true,
             false,
             QPoint(321, 234),

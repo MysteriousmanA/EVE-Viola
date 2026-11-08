@@ -1,4 +1,6 @@
 #include "features/color_rule/color_rule_config.h"
+#include <QUuid>
+#include <QSet>
 
 QString triggerConditionRelationName(TriggerConditionRelation relation)
 {
@@ -39,7 +41,7 @@ QString postTriggerActionName(PostTriggerAction action)
     case PostTriggerAction::Loop:
         return QStringLiteral("正向循环");
     case PostTriggerAction::Jump:
-        return QStringLiteral("跳转至另一状态");
+        return QStringLiteral("切换至另一状态");
     case PostTriggerAction::ReverseWait:
         return QStringLiteral("反向等待");
     }
@@ -48,7 +50,8 @@ QString postTriggerActionName(PostTriggerAction action)
 
 std::optional<PostTriggerAction> postTriggerActionFromName(const QString& name)
 {
-    if (name.compare(QStringLiteral("跳转至另一状态"), Qt::CaseInsensitive) == 0 ||
+    if (name.compare(QStringLiteral("切换至另一状态"), Qt::CaseInsensitive) == 0 ||
+        name.compare(QStringLiteral("跳转至另一状态"), Qt::CaseInsensitive) == 0 ||
         name.compare(QStringLiteral("跳转至状态"), Qt::CaseInsensitive) == 0) {
         return PostTriggerAction::Jump;
     }
@@ -95,4 +98,57 @@ bool removeColorRule(AppConfig& config, int number)
         }
     }
     return false;
+}
+
+void migrateWindowColorLogic(AppConfig& config)
+{
+    const auto originalRules = config.colorRules;
+    QSet<int> claimed;
+    const auto migrate = [&](QList<ReplicaConfig>& replicas) {
+        QSet<QString> ids;
+        for (auto& replica : replicas) {
+            if (replica.id.isEmpty() || ids.contains(replica.id)) {
+                replica.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            }
+            ids.insert(replica.id);
+            int migrated[2]{};
+            for (int slot = 0; slot < 2; ++slot) {
+                for (const auto& original : originalRules) {
+                    if (original.number != replica.colorLogicSlotRule[slot]) { continue; }
+                    ColorRule rule = original;
+                    rule.windowConditions.clear();
+                    for (auto condition : {original.triggerCondition1, original.triggerCondition2}) {
+                        if (!condition.isEmpty()) {
+                            condition.replicaId = replica.id;
+                            rule.windowConditions.append(condition);
+                        }
+                    }
+                    rule.targetReplicaId = replica.id;
+                    rule.enabled = replica.colorLogicEnabled && replica.activeColorLogicSlot == slot + 1;
+                    rule.note += QStringLiteral(" · %1 / %2").arg(replica.sourceTitle).arg(slot + 1);
+                    if (!claimed.contains(original.number)) {
+                        static_cast<void>(updateColorRule(config, original.number, rule));
+                        migrated[slot] = original.number;
+                        claimed.insert(original.number);
+                    } else { migrated[slot] = addColorRule(config, rule); }
+                    break;
+                }
+            }
+            for (int slot = 0; slot < 2; ++slot) {
+                for (auto& rule : config.colorRules) {
+                    if (migrated[slot] && rule.number == migrated[slot]) {
+                        rule.jumpToRule = migrated[1 - slot];
+                        // An empty legacy destination waited without executing another rule.
+                        if (rule.postTriggerAction == PostTriggerAction::Jump && !rule.jumpToRule) {
+                            rule.postTriggerAction = PostTriggerAction::ReverseWait;
+                        }
+                    }
+                }
+            }
+            replica.colorLogicSlotRule[0] = replica.colorLogicSlotRule[1] = 0;
+            replica.colorLogicEnabled = false;
+        }
+    };
+    migrate(config.replicas);
+    for (auto& preset : config.presets) { migrate(preset.replicas); }
 }

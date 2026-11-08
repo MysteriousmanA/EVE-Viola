@@ -14,7 +14,7 @@ QString TriggerCondition::toString() const
     }
     if (!upperOperator.isEmpty()) {
         if (!text.isEmpty()) {
-            text += QStringLiteral("&");
+            text += relation == TriggerConditionRelation::Or ? QStringLiteral("|") : QStringLiteral("&");
         }
         text += upperOperator + QString::number(upperValue);
     }
@@ -31,6 +31,11 @@ std::optional<TriggerCondition> parseTriggerCondition(const QString& text)
     normalized.replace(QStringLiteral("＜"), QStringLiteral("<"));
     normalized.replace(QStringLiteral("并且"), QStringLiteral("&"));
     normalized.replace(QStringLiteral("且"), QStringLiteral("&"));
+    normalized.replace(QStringLiteral("与"), QStringLiteral("&"));
+    normalized.replace(QStringLiteral("或者"), QStringLiteral("|"));
+    normalized.replace(QStringLiteral("或"), QStringLiteral("|"));
+    normalized.replace(QStringLiteral("&&"), QStringLiteral("&"));
+    normalized.replace(QStringLiteral("||"), QStringLiteral("|"));
     if (normalized.isEmpty()) {
         return TriggerCondition{};
     }
@@ -49,7 +54,7 @@ std::optional<TriggerCondition> parseTriggerCondition(const QString& text)
         return std::make_pair(match.captured(1), value);
     };
 
-    const QStringList parts = normalized.split(QLatin1Char('&'));
+    const QStringList parts = normalized.split(QRegularExpression(QStringLiteral("[&|]")));
     if (parts.size() > 2) {
         return std::nullopt;
     }
@@ -69,8 +74,9 @@ std::optional<TriggerCondition> parseTriggerCondition(const QString& text)
         return condition;
     }
 
-    const auto lower = parseBound(parts[0]);
-    const auto upper = parseBound(parts[1]);
+    auto lower = parseBound(parts[0]);
+    auto upper = parseBound(parts[1]);
+    if (lower && lower->first.startsWith(QLatin1Char('<'))) { std::swap(lower, upper); }
     if (!lower.has_value() || !upper.has_value() ||
         (lower->first != QStringLiteral(">") && lower->first != QStringLiteral(">=")) ||
         (upper->first != QStringLiteral("<") && upper->first != QStringLiteral("<="))) {
@@ -81,6 +87,8 @@ std::optional<TriggerCondition> parseTriggerCondition(const QString& text)
     condition.lowerValue = lower->second;
     condition.upperOperator = upper->first;
     condition.upperValue = upper->second;
+    condition.relation = normalized.contains(QLatin1Char('|'))
+        ? TriggerConditionRelation::Or : TriggerConditionRelation::And;
     return condition;
 }
 
@@ -97,5 +105,9 @@ bool evaluateTriggerCondition(const TriggerCondition& condition, double value)
         condition.upperOperator.isEmpty() ||
         (condition.upperOperator == QStringLiteral("<=") ? value <= condition.upperValue
                                                          : value < condition.upperValue);
+    if (condition.relation == TriggerConditionRelation::Or
+        && !condition.lowerOperator.isEmpty() && !condition.upperOperator.isEmpty()) {
+        return lowerOk || upperOk;
+    }
     return lowerOk && upperOk;
 }

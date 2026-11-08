@@ -29,7 +29,7 @@ QMenu* ReplicaWindow::buildContextMenu()
 
     auto* captureAction = menu->addAction(QStringLiteral("截取区域"));
     captureAction->setEnabled(
-        thumbnail_.has_value() && !capturingRegion_ && !sourceNameVisible_);
+        thumbnail_.has_value() && !capturingRegion_);
     connect(captureAction, &QAction::triggered, this, &ReplicaWindow::beginRegionCapture);
 
     auto* presetsMenu = menu->addMenu(QStringLiteral("应用区域预设"));

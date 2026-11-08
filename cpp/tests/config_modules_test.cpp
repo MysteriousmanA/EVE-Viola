@@ -18,6 +18,20 @@ class ConfigModulesTest final : public QObject
 {
     Q_OBJECT
 private slots:
+    void radialRecentSecondsDefaultRoundTripAndBounds()
+    {
+        AppConfig config;
+        parseQuickSwitchConfig({}, config);
+        QCOMPARE(config.radialSwitchRecentSeconds, 10);
+        config.radialSwitchRecentSeconds = 37;
+        AppConfig decoded;
+        parseQuickSwitchConfig(quickSwitchConfigToJson(config), decoded);
+        QCOMPARE(decoded.radialSwitchRecentSeconds, 37);
+        parseQuickSwitchConfig({{QStringLiteral("radialSwitchRecentSeconds"), -1}}, decoded);
+        QCOMPARE(decoded.radialSwitchRecentSeconds, 1);
+        parseQuickSwitchConfig({{QStringLiteral("radialSwitchRecentSeconds"), 99999}}, decoded);
+        QCOMPARE(decoded.radialSwitchRecentSeconds, 3600);
+    }
     void statisticsIntervalsMigrateLegacyFastValuesAndPreserveDisabledAndSlowValues()
     {
         for (const int milliseconds : {0, 500, 1000, 1500, 2500, 10000}) {

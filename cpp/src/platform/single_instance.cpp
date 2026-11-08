@@ -2,10 +2,9 @@
 
 #include <QCryptographicHash>
 #include <QFileInfo>
-#include <QLocalServer>
-#include <QLocalSocket>
 #include <QDir>
 #include <QThread>
+#include <QWinEventNotifier>
 
 #include <utility>
 
@@ -17,6 +16,11 @@ namespace {
 QString mutexName(const QString& key)
 {
     return QStringLiteral("Local\\%1.Mutex").arg(key);
+}
+
+QString activationEventName(const QString& key)
+{
+    return QStringLiteral("Local\\%1.Activate").arg(key);
 }
 
 } // namespace
@@ -47,22 +51,31 @@ SingleInstance::SingleInstance(QString key)
         return;
     }
 
-    server_ = new QLocalServer;
-    server_->setSocketOptions(QLocalServer::UserAccessOption);
-    QLocalServer::removeServer(key_);
-    if (!server_->listen(key_)) {
-        error_ = server_->errorString();
+    // A single auto-reset event is enough to wake the already-running window.
+    // QLocalServer can fail with Access Denied while creating its pipe backlog.
+    const QString eventName = activationEventName(key_);
+    const HANDLE activationEvent = CreateEventW(
+        nullptr, FALSE, FALSE, eventName.toStdWString().c_str());
+    if (activationEvent == nullptr) {
+        error_ = QStringLiteral("无法创建窗口唤醒事件，错误代码 %1")
+                     .arg(GetLastError());
         return;
     }
-    QObject::connect(server_, &QLocalServer::newConnection, server_, [this] {
-        acceptConnections();
+    activationEventHandle_ = activationEvent;
+    activationNotifier_ = new QWinEventNotifier(activationEvent);
+    QObject::connect(activationNotifier_, &QWinEventNotifier::activated,
+                     activationNotifier_, [this] {
+        handleActivation();
     });
     state_ = State::Primary;
 }
 
 SingleInstance::~SingleInstance()
 {
-    delete server_;
+    delete activationNotifier_;
+    if (activationEventHandle_ != nullptr) {
+        CloseHandle(static_cast<HANDLE>(activationEventHandle_));
+    }
     if (mutexHandle_ != nullptr) {
         CloseHandle(static_cast<HANDLE>(mutexHandle_));
     }
@@ -84,15 +97,14 @@ bool SingleInstance::notifyPrimary()
         return false;
     }
     static_cast<void>(AllowSetForegroundWindow(ASFW_ANY));
+    const QString eventName = activationEventName(key_);
     for (int attempt = 0; attempt < 20; ++attempt) {
-        QLocalSocket socket;
-        socket.connectToServer(key_, QIODevice::WriteOnly);
-        if (socket.waitForConnected(100)) {
-            socket.write("activate", 8);
-            socket.flush();
-            static_cast<void>(socket.waitForBytesWritten(200));
-            socket.disconnectFromServer();
-            return true;
+        const HANDLE activationEvent = OpenEventW(
+            EVENT_MODIFY_STATE, FALSE, eventName.toStdWString().c_str());
+        if (activationEvent != nullptr) {
+            const bool notified = SetEvent(activationEvent) != 0;
+            CloseHandle(activationEvent);
+            return notified;
         }
         QThread::msleep(50);
     }
@@ -108,17 +120,11 @@ void SingleInstance::setActivationHandler(std::function<void()> handler)
     }
 }
 
-void SingleInstance::acceptConnections()
+void SingleInstance::handleActivation()
 {
-    while (server_ != nullptr && server_->hasPendingConnections()) {
-        auto* socket = server_->nextPendingConnection();
-        socket->readAll();
-        socket->disconnectFromServer();
-        socket->deleteLater();
-        if (activationHandler_) {
-            activationHandler_();
-        } else {
-            activationPending_ = true;
-        }
+    if (activationHandler_) {
+        activationHandler_();
+    } else {
+        activationPending_ = true;
     }
 }

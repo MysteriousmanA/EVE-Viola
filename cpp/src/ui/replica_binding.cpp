@@ -19,7 +19,6 @@ void ReplicaBinding::attach(ReplicaController& controller, ReplicaWindow& window
             state.activeColorLogicSlot = window.activeColorLogicSlot();
             state.slotColor1 = window.colorLogicSlotColor(1);
             state.slotColor2 = window.colorLogicSlotColor(2);
-            state.sourceNameVisible = window.sourceNameVisible();
             state.statisticsColors = window.statisticsColors();
         });
     });
@@ -53,8 +52,6 @@ void ReplicaBinding::attach(ReplicaController& controller, ReplicaWindow& window
                 commit([slot, rule](ReplicaConfig& state) { state.colorLogicSlotRule[slot - 1] = rule; });
             }
         });
-    QObject::connect(&row, &ReplicaRow::sourceNameVisibilityChanged, lifetime,
-        [commit](bool visible) { commit([visible](ReplicaConfig& state) { state.sourceNameVisible = visible; }); });
     QObject::connect(&row, &ReplicaRow::collapseChanged, lifetime,
         [commit](bool collapsed) { commit([collapsed](ReplicaConfig& state) { state.collapsed = collapsed; }); });
     QObject::connect(&row, &ReplicaRow::colorLogicSlotColorChanged, lifetime,

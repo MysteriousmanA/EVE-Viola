@@ -1,5 +1,7 @@
 #include "config/serialization/replicas_json.h"
 #include "config/config_validation.h"
+#include <QUuid>
+#include <QSet>
 #include "config/serialization/application_options_json.h"
 #include "config/serialization/quick_switch_json.h"
 
@@ -26,6 +28,7 @@ QJsonObject replicaToJson(const ReplicaConfig& replica)
                                             {QStringLiteral("tolerance"), target.tolerance}});
     }
     return {
+        {QStringLiteral("id"), replica.id},
         {QStringLiteral("sourceTitle"), replica.sourceTitle},
         {QStringLiteral("capturedRegion"), region},
         {QStringLiteral("statisticsIntervalMs"), replica.statisticsIntervalMs},
@@ -33,7 +36,6 @@ QJsonObject replicaToJson(const ReplicaConfig& replica)
         {QStringLiteral("colorLogicSlotRules"), slotRules},
         {QStringLiteral("colorLogicEnabled"), replica.colorLogicEnabled},
         {QStringLiteral("activeColorLogicSlot"), replica.activeColorLogicSlot},
-        {QStringLiteral("sourceNameVisible"), replica.sourceNameVisible},
         {QStringLiteral("visible"), replica.visible},
         {QStringLiteral("collapsed"), replica.collapsed},
         {QStringLiteral("positionX"), replica.position.x()},
@@ -48,6 +50,7 @@ QJsonObject replicaToJson(const ReplicaConfig& replica)
 QList<ReplicaConfig> parseReplicas(const QJsonArray& array)
 {
     QList<ReplicaConfig> result;
+    QSet<QString> ids;
     for (const auto& value : array) {
         const auto object = value.toObject();
         int statisticsIntervalMs = object.value(QStringLiteral("statisticsIntervalMs"))
@@ -62,6 +65,11 @@ QList<ReplicaConfig> parseReplicas(const QJsonArray& array)
                            regionObject.value(QStringLiteral("height")).toInt());
         const auto slotRules = object.value(QStringLiteral("colorLogicSlotRules")).toArray();
         ReplicaConfig replica;
+        replica.id = object.value(QStringLiteral("id")).toString();
+        if (replica.id.isEmpty() || ids.contains(replica.id)) {
+            replica.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        }
+        ids.insert(replica.id);
         replica.sourceTitle = object.value(QStringLiteral("sourceTitle")).toString();
         if (region.isValid() && !region.isEmpty()) {
             replica.capturedRegion = region;
@@ -81,7 +89,6 @@ QList<ReplicaConfig> parseReplicas(const QJsonArray& array)
         replica.colorLogicEnabled = object.value(QStringLiteral("colorLogicEnabled")).toBool();
         replica.activeColorLogicSlot =
             qBound(1, object.value(QStringLiteral("activeColorLogicSlot")).toInt(1), 2);
-        replica.sourceNameVisible = object.value(QStringLiteral("sourceNameVisible")).toBool();
         replica.visible = object.value(QStringLiteral("visible")).toBool(true);
         replica.collapsed = object.value(QStringLiteral("collapsed")).toBool(false);
         replica.position = QPoint(object.value(QStringLiteral("positionX")).toInt(),

@@ -1,4 +1,7 @@
 #include "ui/main_window.h"
+#include "features/color_rule/color_rule_config.h"
+#include "features/color_rule/logic_binding_plan.h"
+#include "features/region_preset/preset_service.h"
 
 #include <QMessageBox>
 #include <QStatusBar>
@@ -13,11 +16,16 @@ bool MainWindow::loadConfiguration(QString& loadError)
 {
     const bool loaded = configStore_.load(config_, &loadError);
     configurationWritable_ = loaded;
-    if (config_.defaultPresetSlot >= 1 && config_.defaultPresetSlot <= kPresetCount
-        && config_.presets[config_.defaultPresetSlot - 1].hasConfig) {
-        const PresetConfig& preset = config_.presets[config_.defaultPresetSlot - 1];
-        config_.replicas = preset.replicas;
+    if (loaded) { migrateWindowColorLogic(config_); }
+    // Older caches can have saved presets without a selected startup slot.
+    // Prefer preset 1 in that case instead of restoring the last session's geometry.
+    if (loaded && config_.defaultPresetSlot == 0 && config_.presets[0].hasConfig) {
+        config_.defaultPresetSlot = 1;
     }
+    if (loaded && config_.defaultPresetSlot >= 1 && config_.defaultPresetSlot <= kPresetCount) {
+        static_cast<void>(PresetService::load(config_, config_.defaultPresetSlot - 1));
+    }
+    if (loaded) { migrateLogicBindings(config_); migrateLogicRegionReferences(config_); }
     return loaded;
 }
 

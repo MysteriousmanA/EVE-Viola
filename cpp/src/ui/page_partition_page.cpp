@@ -1,3 +1,4 @@
+#include "ui/common/editor_dialogs.h"
 #include "ui/page_partition_page.h"
 
 #include <algorithm>
@@ -467,7 +468,7 @@ QString swatchStyle(const QColor& color)
 
 QColor chooseRgbColor(QWidget* parent, const QColor& initial, const QString& title)
 {
-    QDialog dialog(parent);
+    EditorDialogs::Dialog dialog(parent);
     dialog.setWindowTitle(title);
 
     auto* layout = new QVBoxLayout(&dialog);
@@ -507,7 +508,7 @@ QColor chooseRgbColor(QWidget* parent, const QColor& initial, const QString& tit
 
     auto* pickerButton = new QPushButton(QStringLiteral("从色板选取…"), &dialog);
     QObject::connect(pickerButton, &QPushButton::clicked, &dialog, [&] {
-        const QColor selected = QColorDialog::getColor(
+        const QColor selected = EditorDialogs::getColor(
             QColor(red->value(), green->value(), blue->value()),
             &dialog, QStringLiteral("选择颜色"));
         if (!selected.isValid()) {
@@ -1041,7 +1042,7 @@ void PagePartitionPage::editCell(int row, int column)
     PagePartitionLine updated = model_.config().lines.at(row);
     if (column == 2) {
         bool accepted = false;
-        const int width = QInputDialog::getInt(
+        const int width = EditorDialogs::getInt(
             this, QStringLiteral("编辑粗细"), QStringLiteral("线条粗细"),
             updated.width, kPagePartitionLineWidthMinimum,
             kPagePartitionLineWidthMaximum, 1, &accepted);
@@ -1058,7 +1059,7 @@ void PagePartitionPage::editCell(int row, int column)
         updated.color = color;
     } else if (column == 4) {
         bool accepted = false;
-        const QString note = QInputDialog::getText(
+        const QString note = EditorDialogs::getText(
             this, QStringLiteral("编辑备注"), QStringLiteral("备注"),
             QLineEdit::Normal, updated.note, &accepted).trimmed();
         if (!accepted || note.isEmpty()) {
